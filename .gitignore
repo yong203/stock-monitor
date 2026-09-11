@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/
+logs/
+backups/
+.DS_Store
+
