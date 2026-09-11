@@ -55,11 +55,14 @@ main → 작업 브랜치 → 작은 커밋 → 검증 → PR → squash merge �
 - 실패하면 직전 정상 태그를 다시 배포. `main` 기록을 강제로 되돌리지 않음
 - DB 마이그레이션은 가능한 한 한 버전 이상 하위 호환되게 작성
 
-## GitHub 보호 정책
+## 저장소 보호 정책
 
-- `main` 변경은 Pull Request만 허용
-- force push와 브랜치 삭제 금지
-- 대화가 모두 해결되어야 병합 가능
+- GitHub 병합 방식은 squash merge만 허용하고 병합된 작업 브랜치는 자동 삭제
+- 현재 GitHub 요금제는 비공개 저장소의 서버 측 branch protection을 지원하지 않음
+- 이를 보완해 저장소의 `pre-push` hook으로 이 Mac에서 `main` 직접 push를 차단
+- 새 개발 환경에서는 `git config core.hooksPath .githooks`를 한 번 실행
+- GitHub Pro로 전환하면 PR 필수, force push·삭제 금지, 대화 해결 필수를 서버에서도 적용
 - CI가 추가되면 테스트·lint·비밀값 검사를 필수 상태 검사로 지정
-- 관리자 우회는 운영 장애 복구용으로만 사용
+
+로컬 hook은 `--no-verify`로 우회할 수 있으므로 최종 보호 수단이 아니라 실수 방지 장치다. 요금제 변경 전까지 PR 사용은 프로젝트 운영 규칙으로 강제한다.
 
