@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+
+set -eu
+
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$repo_root"
+
+if [ "$#" -gt 0 ] && git rev-parse --verify "$1^{commit}" >/dev/null 2>&1; then
+  git diff --check "$1" HEAD
+fi
+
+git diff --check
+git diff --cached --check
+sh -n .githooks/pre-push scripts/check
+
+if [ -f pyproject.toml ]; then
+  python -m ruff format --check .
+  python -m ruff check .
+  python -m pytest -q
+else
+  echo "Python 프로젝트 생성 전: Git·Shell 검사만 실행했습니다."
+fi

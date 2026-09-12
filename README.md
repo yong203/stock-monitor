@@ -14,3 +14,4 @@
 
 개발·리뷰·배포 규칙은 [개발 및 브랜치 전략](docs/DEVELOPMENT.md)을 따릅니다.
 
+AI 개발 에이전트는 루트의 [AGENTS.md](AGENTS.md)를 작업 계약으로 사용합니다.
