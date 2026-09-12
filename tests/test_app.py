@@ -9,6 +9,36 @@ from stock_monitor.database import MARKETS, initialize_database
 from stock_monitor.watchlist import Instrument, replace_market_instruments
 
 
+class FakeLiveService:
+    async def health(self) -> dict[str, object]:
+        return {
+            "status": "connected",
+            "desired": 1,
+            "subscribed": 1,
+            "subscribers": 0,
+            "reconnect_attempt": 0,
+            "last_message_age_seconds": 0,
+            "error": None,
+        }
+
+
+class FakeRuntime:
+    def __init__(self) -> None:
+        self.service = FakeLiveService()
+        self.started = 0
+        self.stopped = 0
+        self.refreshed = 0
+
+    async def start(self, database_path: Path) -> None:
+        self.started += 1
+
+    async def stop(self) -> None:
+        self.stopped += 1
+
+    async def refresh_watchlist(self, database_path: Path) -> None:
+        self.refreshed += 1
+
+
 def prepare_catalog(path: Path) -> None:
     initialize_database(path)
     for market in MARKETS:
@@ -130,3 +160,41 @@ def test_mutation_payloads_are_strict_and_bounded(tmp_path: Path) -> None:
     assert coerced_string.status_code == 422
     assert coerced_integer.status_code == 422
     assert oversized.status_code == 422
+
+
+def test_live_runtime_lifecycle_health_and_watchlist_refresh(tmp_path: Path) -> None:
+    path = tmp_path / "stock.db"
+    prepare_catalog(path)
+    runtime = FakeRuntime()
+
+    with TestClient(
+        create_app(
+            path,
+            enable_live=True,
+            runtime_builder=lambda _: runtime,  # type: ignore[arg-type,return-value]
+        )
+    ) as client:
+        health = client.get("/health/market-data")
+        added = client.post("/api/watchlist", json={"market": "NASDAQ", "symbol": "AAPL"})
+        removed = client.delete(f"/api/watchlist/{added.json()['id']}")
+
+    assert health.status_code == 200
+    assert health.json()["status"] == "connected"
+    assert added.status_code == 201
+    assert removed.status_code == 204
+    assert runtime.started == 1
+    assert runtime.refreshed == 2
+    assert runtime.stopped == 1
+
+
+def test_market_data_health_and_stream_require_configuration(tmp_path: Path) -> None:
+    path = tmp_path / "stock.db"
+
+    with TestClient(create_app(path, enable_live=True, runtime_builder=lambda _: None)) as client:
+        health = client.get("/health/market-data")
+        stream = client.get("/api/quotes/stream")
+
+    assert health.status_code == 503
+    assert health.json()["error"] == "toss_not_configured"
+    assert stream.status_code == 503
+    assert stream.json()["detail"]["code"] == "market_data_not_configured"

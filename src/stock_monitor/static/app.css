@@ -75,6 +75,11 @@ h2 { letter-spacing: -0.025em; }
   white-space: nowrap;
 }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #e1b95c; box-shadow: 0 0 0 4px rgba(225, 185, 92, 0.12); }
+.connection.live, .connection.connected, .connection.ready { color: var(--accent-strong); border-color: rgba(114, 226, 182, 0.32); }
+.connection.live .status-dot, .connection.connected .status-dot, .connection.ready .status-dot { background: var(--accent); box-shadow: 0 0 0 4px rgba(114, 226, 182, 0.12); }
+.connection.delayed, .connection.stale { color: #f0c86e; border-color: rgba(240, 200, 110, 0.3); }
+.connection.disconnected, .connection.unavailable, .connection.error, .connection.auth_error, .connection.ip_forbidden { color: var(--danger); border-color: rgba(255, 116, 116, 0.3); }
+.connection.disconnected .status-dot, .connection.unavailable .status-dot, .connection.error .status-dot, .connection.auth_error .status-dot, .connection.ip_forbidden .status-dot { background: var(--danger); box-shadow: 0 0 0 4px rgba(255, 116, 116, 0.12); }
 
 .market-strip {
   display: grid;
@@ -119,9 +124,16 @@ h2 { letter-spacing: -0.025em; }
 .badge { padding: 4px 8px; border-radius: 6px; color: var(--accent-strong); background: rgba(114, 226, 182, 0.11); font-size: 0.72rem; font-weight: 800; }
 .price { margin-top: 34px; font-size: 2rem; font-weight: 780; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; }
 .price small { color: var(--muted); font-size: 0.78rem; font-weight: 550; letter-spacing: 0; }
+.price.unavailable { color: var(--muted); }
 .change { margin-top: 8px; font-size: 0.86rem; font-variant-numeric: tabular-nums; }
+.change-symbol { display: inline-block; min-width: 1.1em; }
+.change.up { color: var(--up); }
+.change.down { color: var(--down); }
 .neutral { color: var(--muted); }
 .stock-card footer { margin-top: auto; padding-top: 22px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.stock-card.delayed .quote-status, .stock-card.stale .quote-status { color: #f0c86e; }
+.stock-card.disconnected .quote-status, .stock-card.unavailable .quote-status, .stock-card.error .quote-status { color: var(--danger); }
+.stock-card.live .quote-status, .stock-card.connected .quote-status, .stock-card.ready .quote-status { color: var(--accent-strong); }
 
 .empty { padding: 72px 24px; text-align: center; border: 1px dashed var(--border); border-radius: var(--radius); color: var(--muted); background: rgba(20, 26, 34, 0.48); }
 .empty h2 { color: var(--text); }
