@@ -7,6 +7,7 @@ import pytest
 
 from stock_monitor import __main__
 from stock_monitor.diagnostics import DiagnosticResult
+from stock_monitor.instruments import InstrumentSyncResult
 from stock_monitor.settings import Credentials
 
 
@@ -78,3 +79,58 @@ def test_diagnostic_exit_code_is_forwarded(monkeypatch, capsys) -> None:
     assert exit_code == 12
     assert output["retry_after_seconds"] == "2"
     assert "private" not in json.dumps(output)
+
+
+def test_instrument_sync_result_is_printed(monkeypatch, capsys, tmp_path) -> None:
+    monkeypatch.setattr(
+        __main__,
+        "load_credentials",
+        lambda path: Credentials(client_id="private-id", client_secret="private-secret"),
+    )
+    monkeypatch.setattr(__main__, "initialize_database", lambda path: None)
+    monkeypatch.setattr(
+        __main__,
+        "sync_instruments",
+        lambda credentials, path: InstrumentSyncResult(
+            ok=True,
+            stage="complete",
+            code="instrument_sync_ok",
+            exit_code=0,
+            markets=7,
+            instruments=123,
+        ),
+    )
+
+    exit_code, output = run_cli(
+        monkeypatch,
+        capsys,
+        "--database-file",
+        str(tmp_path / "stock.db"),
+        "sync-instruments",
+    )
+
+    assert exit_code == 0
+    assert output["markets"] == 7
+    assert output["instruments"] == 123
+
+
+def test_instrument_sync_uses_database_environment(monkeypatch, capsys, tmp_path) -> None:
+    expected_path = tmp_path / "custom.db"
+    seen: list[object] = []
+    monkeypatch.setenv("STOCK_MONITOR_DATABASE_FILE", str(expected_path))
+    monkeypatch.setattr(
+        __main__,
+        "load_credentials",
+        lambda path: Credentials(client_id="private-id", client_secret="private-secret"),
+    )
+    monkeypatch.setattr(__main__, "initialize_database", seen.append)
+    monkeypatch.setattr(
+        __main__,
+        "sync_instruments",
+        lambda credentials, path: InstrumentSyncResult(True, "complete", "ok", 0, 7, 1),
+    )
+
+    exit_code, _ = run_cli(monkeypatch, capsys, "sync-instruments")
+
+    assert exit_code == 0
+    assert seen == [expected_path]

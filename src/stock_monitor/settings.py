@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_CREDENTIALS_FILE = Path("~/.config/stock-monitor/credentials.toml")
+DEFAULT_DATABASE_FILE = Path("~/.local/share/stock-monitor/stock.db")
 
 
 class CredentialsError(Exception):
@@ -32,6 +33,11 @@ class Credentials:
 def credentials_path() -> Path:
     configured = os.environ.get("STOCK_MONITOR_CREDENTIALS_FILE")
     return Path(configured or DEFAULT_CREDENTIALS_FILE).expanduser()
+
+
+def database_path() -> Path:
+    configured = os.environ.get("STOCK_MONITOR_DATABASE_FILE")
+    return Path(configured or DEFAULT_DATABASE_FILE).expanduser()
 
 
 def load_credentials(path: Path) -> Credentials:

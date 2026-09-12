@@ -4,12 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stock-monitor"
-version = "0.1.0"
+version = "0.2.0"
 description = "LAN-only real-time stock monitor for Termux"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "fastapi>=0.116,<0.128",
   "httpx>=0.28,<1",
+  "jinja2>=3.1,<4",
   "pydantic==1.10.26",
   "uvicorn>=0.35,<1",
 ]
@@ -25,6 +26,9 @@ stock-monitor = "stock_monitor.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+stock_monitor = ["templates/*.html", "static/*.css", "static/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -61,6 +61,16 @@ stock-monitor diagnose-toss
 
 ## 상태 확인
 
+최초 설치 또는 종목 목록 갱신 시 Toss에서 활성 종목을 동기화한다. 7개 시장을 호출하므로 약 7초가 걸린다.
+
+```sh
+stock-monitor sync-instruments
+```
+
+`diagnose-toss`와 `sync-instruments`는 모두 새 토큰을 발급한다. Phase 1B 이후 상시 시세 서비스가 실행 중일 때는 두 CLI를 별도로 실행하지 않고 서비스 내부 갱신만 사용한다.
+
+대시보드 서버를 실행한다.
+
 ```sh
 uvicorn stock_monitor.app:app --host 0.0.0.0 --port 8000
 ```
@@ -71,5 +81,7 @@ uvicorn stock_monitor.app:app --host 0.0.0.0 --port 8000
 http://<스마트폰의 고정 LAN IP>:8000/health/live
 http://<스마트폰의 고정 LAN IP>:8000/health/configuration
 ```
+
+대시보드는 `http://<스마트폰의 고정 LAN IP>:8000`, 관심종목 관리는 `/watchlist`에서 연다.
 
 자동 시작과 상시 서비스 구성은 실시간 MVP를 배포하는 Phase 1에서 진행한다.
