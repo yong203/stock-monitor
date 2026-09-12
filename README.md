@@ -8,10 +8,12 @@
 - 실행: Termux 네이티브 Python 서버, SQLite
 - AI 요약: 2단계 기능이며 Mac과 Codex가 켜져 있을 때만 매시간 실행
 
-현재 상태는 **설계 검토 단계**입니다. 구현은 계획 승인 후 시작합니다.
+현재 **Phase 0 기반 구현**을 진행하고 있습니다.
 
 구체적인 범위와 구조는 [프로젝트 계획](docs/PROJECT_PLAN.md)을 참고하세요.
 
 개발·리뷰·배포 규칙은 [개발 및 브랜치 전략](docs/DEVELOPMENT.md)을 따릅니다.
 
 AI 개발 에이전트는 루트의 [AGENTS.md](AGENTS.md)를 작업 계약으로 사용합니다.
+
+Termux 설치와 Toss 연결 진단은 [Termux 실행 가이드](docs/TERMUX.md)를 참고하세요.

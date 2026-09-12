@@ -1,15 +1,16 @@
 .env
 .env.*
 !.env.example
+config/credentials.toml
 *.db
 *.db-shm
 *.db-wal
 *.sqlite3
 __pycache__/
+*.egg-info/
 .venv/
 .pytest_cache/
 .ruff_cache/
 logs/
 backups/
 .DS_Store
-
