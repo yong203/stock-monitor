@@ -39,6 +39,33 @@ def test_rejects_newer_database(tmp_path: Path) -> None:
         initialize_database(path)
 
 
+def test_migrates_v1_to_v2_without_losing_watchlist(monkeypatch, tmp_path: Path) -> None:
+    path = tmp_path / "stock.db"
+    monkeypatch.setattr(database, "SCHEMA_VERSION", 1)
+    initialize_database(path)
+    with connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO instruments (
+                market, symbol, name, security_type, is_common_share, country
+            ) VALUES ('NASDAQ', 'AAPL', '애플', 'STOCK', 1, 'US')
+            """
+        )
+        connection.execute(
+            "INSERT INTO watchlist_items (market, symbol, position) VALUES ('NASDAQ', 'AAPL', 0)"
+        )
+
+    monkeypatch.setattr(database, "SCHEMA_VERSION", SCHEMA_VERSION)
+    initialize_database(path)
+
+    with connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        assert connection.execute("SELECT symbol FROM watchlist_items").fetchone()[0] == "AAPL"
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='quote_baselines'"
+        ).fetchone()
+
+
 def test_rejects_older_database_when_migration_is_missing(monkeypatch, tmp_path: Path) -> None:
     path = tmp_path / "stock.db"
     initialize_database(path)

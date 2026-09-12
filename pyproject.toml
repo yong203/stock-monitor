@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stock-monitor"
-version = "0.2.0"
+version = "0.3.0"
 description = "LAN-only real-time stock monitor for Termux"
 requires-python = ">=3.12,<3.14"
 dependencies = [
@@ -13,6 +13,7 @@ dependencies = [
   "jinja2>=3.1,<4",
   "pydantic==1.10.26",
   "uvicorn>=0.35,<1",
+  "websockets>=17,<18",
 ]
 
 [project.optional-dependencies]

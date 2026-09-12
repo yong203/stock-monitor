@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MARKETS = ("KOSPI", "KOSDAQ", "KR_ETC", "NYSE", "NASDAQ", "AMEX", "US_ETC")
 
 
@@ -24,9 +24,13 @@ def initialize_database(path: Path) -> None:
                 )
             if version == 0:
                 _create_schema_v1(connection)
-                connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-            elif version != SCHEMA_VERSION:
+                version = 1
+            if version == 1 and version < SCHEMA_VERSION:
+                _create_schema_v2(connection)
+                version = 2
+            if version != SCHEMA_VERSION:
                 raise UnsupportedDatabaseVersion(f"database version {version} requires a migration")
+            connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             connection.commit()
         except Exception:
             connection.rollback()
@@ -74,6 +78,24 @@ def _create_schema_v1(connection: sqlite3.Connection) -> None:
             position INTEGER NOT NULL CHECK (position >= 0),
             UNIQUE (market, symbol),
             UNIQUE (position),
+            FOREIGN KEY (market, symbol) REFERENCES instruments (market, symbol)
+        )
+        """
+    )
+
+
+def _create_schema_v2(connection: sqlite3.Connection) -> None:
+    markets = ", ".join(f"'{market}'" for market in MARKETS)
+    connection.execute(
+        f"""
+        CREATE TABLE quote_baselines (
+            market TEXT NOT NULL CHECK (market IN ({markets})),
+            symbol TEXT NOT NULL COLLATE NOCASE,
+            trading_date TEXT NOT NULL CHECK (length(trading_date) = 10),
+            previous_close TEXT NOT NULL CHECK (length(trim(previous_close)) > 0),
+            currency TEXT NOT NULL CHECK (length(trim(currency)) > 0),
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (market, symbol, trading_date),
             FOREIGN KEY (market, symbol) REFERENCES instruments (market, symbol)
         )
         """

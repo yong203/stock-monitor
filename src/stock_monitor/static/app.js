@@ -176,6 +176,226 @@ const setupWatchlist = () => {
   });
 };
 
+const quoteKey = (country, symbol) =>
+  `${String(country).toUpperCase()}:${String(symbol).toUpperCase()}`;
+
+const numericValue = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
+
+const fractionDigits = (currency) => (currency === "KRW" ? 0 : 4);
+
+const formatAmount = (value, currency, minimumFractionDigits = 0) =>
+  new Intl.NumberFormat("ko-KR", {
+    minimumFractionDigits,
+    maximumFractionDigits: fractionDigits(currency),
+  }).format(value);
+
+const formatPercent = (value) =>
+  new Intl.NumberFormat("ko-KR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+
+const formatKst = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return {
+    datetime: date.toISOString(),
+    label: `${new Intl.DateTimeFormat("ko-KR", {
+      timeZone: "Asia/Seoul",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).format(date)} KST`,
+  };
+};
+
+const quoteStatusLabels = {
+  idle: "시세 대기",
+  live: "실시간",
+  connected: "실시간",
+  ready: "실시간",
+  delayed: "지연",
+  stale: "지연",
+  disconnected: "연결 끊김",
+  unavailable: "시세 없음",
+  error: "시세 없음",
+  auth_error: "인증 오류",
+  ip_forbidden: "허용 IP 확인 필요",
+  pending: "시세 대기",
+  connecting: "연결 중",
+};
+
+const connectionStatusClasses = new Set([
+  "idle",
+  "live",
+  "connected",
+  "ready",
+  "delayed",
+  "stale",
+  "disconnected",
+  "unavailable",
+  "error",
+  "auth_error",
+  "ip_forbidden",
+  "pending",
+  "connecting",
+]);
+
+const setConnection = (status, label) => {
+  const connection = document.querySelector("#quote-connection");
+  const text = document.querySelector("#quote-connection-label");
+  if (!connection || !text) return;
+  connectionStatusClasses.forEach((item) => connection.classList.remove(item));
+  const safeStatus = connectionStatusClasses.has(status) ? status : "unavailable";
+  connection.classList.add(safeStatus);
+  const nextLabel = label || quoteStatusLabels[safeStatus] || "시세 상태 확인 필요";
+  if (text.textContent !== nextLabel) text.textContent = nextLabel;
+};
+
+const quoteDirection = (quote, change) => {
+  if (["up", "down", "flat"].includes(quote.direction)) return quote.direction;
+  if (["unchanged", "steady"].includes(quote.direction)) return "flat";
+  if (change === null || change === 0) return "flat";
+  return change > 0 ? "up" : "down";
+};
+
+const renderQuote = (card, quote) => {
+  const price = numericValue(quote.price);
+  const change = numericValue(quote.change);
+  const percent = numericValue(quote.change_percent);
+  const currency = typeof quote.currency === "string" ? quote.currency.toUpperCase() : "";
+  const status = quoteStatusLabels[quote.status] ? quote.status : "unavailable";
+  const statusElement = card.querySelector(".quote-status");
+  const priceElement = card.querySelector(".price");
+  const priceValue = card.querySelector(".price-value");
+  const priceCurrency = card.querySelector(".price-currency");
+  const changeElement = card.querySelector(".change");
+  const changeSymbol = card.querySelector(".change-symbol");
+  const changeText = card.querySelector(".change-text");
+  const time = card.querySelector(".quote-time");
+
+  card.classList.remove(...connectionStatusClasses);
+  card.classList.add(status);
+  statusElement.textContent = quoteStatusLabels[status];
+
+  if (price !== null && currency) {
+    priceValue.textContent = formatAmount(price, currency, currency === "USD" ? 2 : 0);
+    priceCurrency.textContent = currency;
+    priceElement.classList.remove("unavailable");
+    card.dataset.hasQuote = "true";
+  } else if (card.dataset.hasQuote !== "true") {
+    priceValue.textContent = "—";
+    priceCurrency.textContent = status === "pending" ? "시세 준비 중" : "시세 없음";
+    priceElement.classList.add("unavailable");
+  }
+
+  if (change !== null && percent !== null && currency) {
+    const direction = quoteDirection(quote, change);
+    const sign = direction === "up" ? "+" : direction === "down" ? "−" : "";
+    const symbol = direction === "up" ? "▲" : direction === "down" ? "▼" : "—";
+    const directionLabel = direction === "up" ? "상승" : direction === "down" ? "하락" : "보합";
+    const amount = formatAmount(Math.abs(change), currency, currency === "USD" ? 2 : 0);
+    const rate = formatPercent(Math.abs(percent));
+    changeElement.classList.remove("up", "down", "neutral");
+    changeElement.classList.add(direction === "flat" ? "neutral" : direction);
+    changeSymbol.textContent = symbol;
+    changeText.textContent = `${sign}${amount} ${currency} (${sign}${rate}%)`;
+    changeElement.setAttribute(
+      "aria-label",
+      `${directionLabel}, 전일 대비 ${sign}${amount} ${currency}, ${sign}${rate}퍼센트`,
+    );
+    card.dataset.hasChange = "true";
+  } else if (card.dataset.hasChange !== "true") {
+    changeElement.classList.remove("up", "down");
+    changeElement.classList.add("neutral");
+    changeSymbol.textContent = "—";
+    changeText.textContent = "전일 대비 정보 없음";
+    changeElement.removeAttribute("aria-label");
+  }
+
+  const updated = formatKst(quote.provider_at || quote.received_at);
+  if (updated) {
+    time.dateTime = updated.datetime;
+    time.textContent = updated.label;
+  }
+};
+
+const renderQuoteSnapshot = (snapshot, cards) => {
+  if (!snapshot || typeof snapshot !== "object") return;
+  const connection = snapshot.connection;
+  if (connection && typeof connection === "object") {
+    setConnection(connection.status, connection.label);
+  }
+  if (!Array.isArray(snapshot.quotes)) return;
+  snapshot.quotes.forEach((quote) => {
+    if (!quote || typeof quote !== "object") return;
+    const card = cards.get(quoteKey(quote.market, quote.symbol));
+    if (card) renderQuote(card, quote);
+  });
+};
+
+const setupQuoteStream = () => {
+  const quoteCards = [...document.querySelectorAll("[data-quote-card]")];
+  if (!quoteCards.length) return;
+  if (!("EventSource" in window)) {
+    setConnection("unavailable", "이 브라우저는 실시간 시세를 지원하지 않습니다");
+    return;
+  }
+  const cards = new Map(
+    quoteCards.map((card) => {
+      const item = card.closest("[data-country][data-symbol]");
+      return [quoteKey(item.dataset.country, item.dataset.symbol), card];
+    }),
+  );
+  let pendingSnapshot = null;
+  let renderTimer = null;
+  const flushRender = () => {
+    if (pendingSnapshot) renderQuoteSnapshot(pendingSnapshot, cards);
+    pendingSnapshot = null;
+    renderTimer = null;
+  };
+  const scheduleRender = (snapshot) => {
+    pendingSnapshot = snapshot;
+    if (renderTimer !== null) return;
+    renderTimer = window.setTimeout(flushRender, 250);
+  };
+  const flushBeforeConnectionState = () => {
+    if (renderTimer !== null) window.clearTimeout(renderTimer);
+    flushRender();
+  };
+
+  setConnection("connecting", "시세 연결 중");
+  const stream = new EventSource("/api/quotes/stream");
+  stream.addEventListener("open", () => setConnection("connecting", "시세 상태 확인 중"));
+  stream.addEventListener("message", (event) => {
+    try {
+      scheduleRender(JSON.parse(event.data));
+    } catch (_) {
+      flushBeforeConnectionState();
+      setConnection("unavailable", "시세 응답을 확인할 수 없습니다");
+    }
+  });
+  stream.addEventListener("error", () => {
+    flushBeforeConnectionState();
+    quoteCards.forEach((card) => {
+      card.classList.remove(...connectionStatusClasses);
+      card.classList.add("delayed");
+      card.querySelector(".quote-status").textContent = "지연";
+    });
+    setConnection("disconnected", "화면 연결 끊김 · 재연결 중");
+  });
+  window.addEventListener("pagehide", () => stream.close(), { once: true });
+};
+
 setupFilters();
 setupSearch();
 setupWatchlist();
+setupQuoteStream();
