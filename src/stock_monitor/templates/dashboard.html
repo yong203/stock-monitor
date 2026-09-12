@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}대시보드 · Stock Monitor{% endblock %}
+{% block content %}
+  <section class="hero" aria-labelledby="dashboard-title">
+    <div>
+      <p class="eyebrow">MY WATCHLIST</p>
+      <h1 id="dashboard-title">오늘의 관심종목</h1>
+      <p class="muted">실시간 시세 연결은 다음 단계에서 활성화됩니다.</p>
+    </div>
+    <div class="connection pending" aria-live="polite">
+      <span class="status-dot" aria-hidden="true"></span>
+      시세 연결 준비 중
+    </div>
+  </section>
+
+  <section class="market-strip" aria-label="시장 상태">
+    <div><span>한국</span><strong>시장 시간 확인 준비 중</strong></div>
+    <div><span>미국</span><strong>시장 시간 확인 준비 중</strong></div>
+  </section>
+
+  {% if items %}
+    <div class="filters" role="group" aria-label="관심종목 필터">
+      <button class="filter active" type="button" data-filter="all" aria-pressed="true">전체</button>
+      <button class="filter" type="button" data-filter="KR" aria-pressed="false">한국</button>
+      <button class="filter" type="button" data-filter="US" aria-pressed="false">미국</button>
+      <button class="filter" type="button" data-filter="ETF" aria-pressed="false">ETF</button>
+    </div>
+    <ul class="card-grid" id="watchlist-cards">
+      {% for item in items %}
+        <li data-country="{{ item.country }}" data-etf="{{ 'true' if item.is_etf else 'false' }}">
+          <article class="stock-card">
+            <header>
+              <div>
+                <h2>{{ item.name }}</h2>
+                <p>{{ item.symbol }} · {{ item.market }}</p>
+              </div>
+              {% if item.is_etf %}<span class="badge">ETF</span>{% endif %}
+            </header>
+            <div class="price unavailable">— <small>시세 준비 중</small></div>
+            <div class="change neutral"><span aria-hidden="true">—</span> 전일 대비 준비 중</div>
+            <footer><span>세션 확인 전</span><time>업데이트 대기</time></footer>
+          </article>
+        </li>
+      {% endfor %}
+    </ul>
+    <p class="empty filtered-empty" id="filtered-empty" hidden>조건에 맞는 종목이 없습니다.</p>
+  {% else %}
+    <section class="empty" aria-labelledby="empty-title">
+      <span class="empty-icon" aria-hidden="true">＋</span>
+      <h2 id="empty-title">관심종목이 비어 있습니다</h2>
+      <p>확인하고 싶은 한국·미국 주식이나 ETF를 추가해보세요.</p>
+      <a class="button primary" href="/watchlist">첫 종목 추가</a>
+    </section>
+  {% endif %}
+{% endblock %}

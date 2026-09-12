@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 
 from .settings import Credentials
-from .toss import PROBE_SYMBOL, TossClient, TossResponse
+from .toss import PROBE_SYMBOL, TossClient, TossResponse, parse_access_token
 
 EXIT_OK = 0
 EXIT_AUTHENTICATION = 10
@@ -57,7 +57,7 @@ def run_toss_diagnostic(
         if token_failure:
             return token_failure
 
-        access_token = _access_token(token_response.body)
+        access_token = parse_access_token(token_response.body)
         if access_token is None:
             return _remote_failure("token", token_response, "invalid_token_response")
 
@@ -193,21 +193,6 @@ def _provider_code(stage: str, body: Any) -> str | None:
         return None
     code = error.get("code")
     return code if isinstance(code, str) and code else None
-
-
-def _access_token(body: Any) -> str | None:
-    if not isinstance(body, dict):
-        return None
-    access_token = body.get("access_token")
-    token_type = body.get("token_type")
-    expires_in = body.get("expires_in")
-    if not isinstance(access_token, str) or not access_token:
-        return None
-    if token_type != "Bearer":
-        return None
-    if isinstance(expires_in, bool) or not isinstance(expires_in, int) or expires_in <= 0:
-        return None
-    return access_token
 
 
 def _probe_quote(body: Any) -> dict[str, str] | None:

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}관심종목 관리 · Stock Monitor{% endblock %}
+{% block content %}
+  <section class="page-heading">
+    <p class="eyebrow">WATCHLIST SETTINGS</p>
+    <h1>관심종목 관리</h1>
+    <p class="muted">한국·미국 주식과 ETF를 합계 20개까지 추가할 수 있습니다.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="search-title">
+    <div class="panel-heading">
+      <div>
+        <h2 id="search-title">종목 검색</h2>
+        <p>종목명 또는 심볼을 입력하세요.</p>
+      </div>
+    </div>
+    <form class="search-form" id="instrument-search">
+      <label class="sr-only" for="search-query">종목명 또는 심볼</label>
+      <input id="search-query" name="q" type="search" maxlength="80" placeholder="예: 삼성전자, AAPL" autocomplete="off" required>
+      <button class="button primary" type="submit">검색</button>
+    </form>
+    <p class="form-message" id="search-message" role="status"></p>
+    <ul class="search-results" id="search-results" aria-label="검색 결과"></ul>
+  </section>
+
+  <section class="panel" aria-labelledby="current-title">
+    <div class="panel-heading">
+      <div>
+        <h2 id="current-title">현재 관심종목</h2>
+        <p><strong id="watchlist-count">{{ items|length }}</strong> / 20개</p>
+      </div>
+    </div>
+    {% if items %}
+      <ol class="watchlist" id="watchlist-items">
+        {% for item in items %}
+          <li data-item-id="{{ item.id }}">
+            <div class="instrument-name">
+              <strong>{{ item.name }}</strong>
+              <span>{{ item.symbol }} · {{ item.market }}{% if item.is_etf %} · ETF{% endif %}</span>
+            </div>
+            <div class="item-actions">
+              <button class="icon-button move-up" type="button" aria-label="{{ item.name }} 위로 이동" {% if loop.first %}disabled{% endif %}>↑</button>
+              <button class="icon-button move-down" type="button" aria-label="{{ item.name }} 아래로 이동" {% if loop.last %}disabled{% endif %}>↓</button>
+              <button class="button danger remove-item" type="button" data-name="{{ item.name }}" aria-label="{{ item.name }} 삭제">삭제</button>
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <p class="empty compact" id="watchlist-empty">아직 추가한 종목이 없습니다.</p>
+    {% endif %}
+    <p class="form-message" id="watchlist-message" role="status"></p>
+  </section>
+{% endblock %}

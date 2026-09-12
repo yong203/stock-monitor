@@ -62,6 +62,29 @@ class TossClient:
         )
         return _response(response)
 
+    def get_all_stocks(self, access_token: str, market: str) -> TossResponse:
+        response = self._client.get(
+            "/api/v1/stocks/all",
+            params={"market": market, "status": "ACTIVE"},
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        return _response(response)
+
+
+def parse_access_token(body: Any) -> str | None:
+    if not isinstance(body, dict):
+        return None
+    access_token = body.get("access_token")
+    token_type = body.get("token_type")
+    expires_in = body.get("expires_in")
+    if not isinstance(access_token, str) or not access_token:
+        return None
+    if token_type != "Bearer":
+        return None
+    if isinstance(expires_in, bool) or not isinstance(expires_in, int) or expires_in <= 0:
+        return None
+    return access_token
+
 
 def _response(response: httpx.Response) -> TossResponse:
     try:
