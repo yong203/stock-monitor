@@ -11,7 +11,13 @@ fi
 
 git diff --check
 git diff --cached --check
-sh -n .githooks/pre-push scripts/check
+sh -n \
+  .githooks/pre-push \
+  scripts/check \
+  scripts/install-termux-services \
+  ops/termux/boot/10-stock-monitor \
+  ops/termux/services/stock-monitor/run \
+  ops/termux/services/stock-monitor-backup/run
 
 if [ -f pyproject.toml ]; then
   python -m ruff format --check .

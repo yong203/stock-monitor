@@ -1,0 +1,4 @@
+#!/data/data/com.termux/files/usr/bin/sh
+
+termux-wake-lock || printf '%s\n' 'stock-monitor: wake lock failed' >&2
+. /data/data/com.termux/files/usr/etc/profile.d/start-services.sh

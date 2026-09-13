@@ -6,6 +6,7 @@ import sys
 import pytest
 
 from stock_monitor import __main__
+from stock_monitor.backup import DatabaseBackupResult
 from stock_monitor.diagnostics import DiagnosticResult
 from stock_monitor.instruments import InstrumentSyncResult
 from stock_monitor.settings import Credentials
@@ -134,3 +135,59 @@ def test_instrument_sync_uses_database_environment(monkeypatch, capsys, tmp_path
 
     assert exit_code == 0
     assert seen == [expected_path]
+
+
+def test_database_backup_does_not_load_toss_credentials(monkeypatch, capsys, tmp_path) -> None:
+    database_path = tmp_path / "stock.db"
+    backup_path = tmp_path / "backups" / "stock-20260913.db"
+    seen: list[tuple[object, object, object]] = []
+    monkeypatch.setattr(
+        __main__,
+        "load_credentials",
+        lambda path: pytest.fail("backup must not load Toss credentials"),
+    )
+    monkeypatch.setattr(
+        __main__,
+        "create_database_backup",
+        lambda database, directory, retention: (
+            seen.append((database, directory, retention))
+            or DatabaseBackupResult(path=backup_path, retained=1)
+        ),
+    )
+
+    exit_code, output = run_cli(
+        monkeypatch,
+        capsys,
+        "--database-file",
+        str(database_path),
+        "--backup-directory",
+        str(tmp_path / "backups"),
+        "--backup-retention",
+        "3",
+        "backup-db",
+    )
+
+    assert exit_code == 0
+    assert output["code"] == "database_backup_ok"
+    assert output["path"] == str(backup_path)
+    assert seen == [(database_path, tmp_path / "backups", 3)]
+
+
+def test_database_backup_failure_returns_safe_json(monkeypatch, capsys, tmp_path) -> None:
+    missing_database = tmp_path / "missing.db"
+
+    exit_code, output = run_cli(
+        monkeypatch,
+        capsys,
+        "--database-file",
+        str(missing_database),
+        "backup-db",
+    )
+
+    assert exit_code == 4
+    assert output == {
+        "ok": False,
+        "stage": "backup",
+        "code": "database_not_found",
+        "exit_code": 4,
+    }

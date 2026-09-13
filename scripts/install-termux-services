@@ -1,0 +1,100 @@
+#!/data/data/com.termux/files/usr/bin/sh
+
+set -eu
+
+expected_prefix=/data/data/com.termux/files/usr
+expected_repo=/data/data/com.termux/files/home/stock-monitor
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+enable_new=false
+
+if [ "${1:-}" = "--enable" ]; then
+  enable_new=true
+  shift
+fi
+if [ "$#" -ne 0 ]; then
+  printf '%s\n' '사용법: ./scripts/install-termux-services [--enable]' >&2
+  exit 2
+fi
+
+if [ "${PREFIX:-}" != "$expected_prefix" ] || [ "$repo_root" != "$expected_repo" ]; then
+  printf '%s\n' '이 스크립트는 Termux의 $HOME/stock-monitor에서만 실행할 수 있습니다.' >&2
+  exit 1
+fi
+
+service_root=$PREFIX/var/service
+log_root=$PREFIX/var/log/sv
+boot_root=/data/data/com.termux/files/home/.termux/boot
+staging=
+
+cleanup() {
+  if [ -n "$staging" ] && [ -d "$staging" ]; then
+    rm -rf -- "$staging"
+  fi
+}
+trap cleanup EXIT HUP INT TERM
+
+export PATH="$PREFIX/bin:$PATH"
+export SVDIR="$service_root"
+export LOGDIR="$PREFIX/var/log"
+
+for service in stock-monitor stock-monitor-backup; do
+  target=$service_root/$service
+  mkdir -p "$log_root/$service"
+  chmod 700 "$log_root/$service"
+  install -m 600 "$repo_root/ops/termux/svlogd-config" "$log_root/$service/config"
+
+  if [ -e "$target" ]; then
+    if [ ! -d "$target" ] || [ -L "$target" ]; then
+      printf '%s\n' "$target: 안전한 서비스 디렉터리가 아닙니다." >&2
+      exit 1
+    fi
+    was_enabled=false
+    if [ ! -e "$target/down" ]; then
+      was_enabled=true
+    fi
+    mkdir -p "$target/log"
+    install -m 700 "$repo_root/ops/termux/services/$service/run" "$target/run"
+    ln -sfn "$PREFIX/share/termux-services/svlogger" "$target/log/run"
+    if sv status "$service/log" >/dev/null 2>&1; then
+      sv hup "$service/log"
+    fi
+    if [ "$was_enabled" = true ]; then
+      sv restart "$service"
+    fi
+  else
+    staging=$(mktemp -d "$PREFIX/tmp/$service.XXXXXX")
+    mkdir -p "$staging/log"
+    : >"$staging/down"
+    install -m 700 "$repo_root/ops/termux/services/$service/run" "$staging/run"
+    ln -s "$PREFIX/share/termux-services/svlogger" "$staging/log/run"
+    mv "$staging" "$target"
+    staging=
+  fi
+done
+
+mkdir -p "$boot_root"
+chmod 700 "$boot_root"
+install -m 700 "$repo_root/ops/termux/boot/10-stock-monitor" "$boot_root/10-stock-monitor"
+
+if [ "$enable_new" = true ]; then
+  daemon_pid_file=$PREFIX/var/run/service-daemon.pid
+  if [ ! -s "$daemon_pid_file" ] || ! kill -0 "$(cat "$daemon_pid_file")" 2>/dev/null; then
+    service-daemon start
+  fi
+  for service in stock-monitor stock-monitor-backup; do
+    waited=0
+    while [ ! -e "$service_root/$service/supervise/ok" ] && [ "$waited" -lt 10 ]; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+    if [ ! -e "$service_root/$service/supervise/ok" ]; then
+      printf '%s\n' "$service: runit supervisor가 서비스를 감지하지 못했습니다." >&2
+      exit 1
+    fi
+  done
+  sv-enable stock-monitor
+  sv-enable stock-monitor-backup
+  sv status stock-monitor stock-monitor-backup
+else
+  printf '%s\n' '서비스 파일을 설치했습니다. 신규 서비스는 아직 비활성 상태입니다.'
+fi
