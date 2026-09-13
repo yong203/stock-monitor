@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from stock_monitor.app import create_app
+from stock_monitor.app import MAX_REPORT_BODY_BYTES, _LimitReportBodyMiddleware, create_app
 from stock_monitor.database import connect, initialize_database
 from stock_monitor.reports import (
     InvestmentReportInput,
@@ -51,7 +52,7 @@ def payload(*, run_id: str = RUN_ID, summary: str = "핵심 변화는 제한적�
         "run_id": run_id,
         "market": "NASDAQ",
         "symbol": "AAPL",
-        "analyzed_at": "2026-09-14T09:00:00+09:00",
+        "analyzed_at": "2026-09-13T09:00:00+09:00",
         "price": "230.10",
         "currency": "USD",
         "title": "가격 흐름은 균형",
@@ -80,7 +81,7 @@ def payload(*, run_id: str = RUN_ID, summary: str = "핵심 변화는 제한적�
                 "publisher": "토스증권",
                 "url": "https://developers.tossinvest.com/",
                 "published_at": None,
-                "retrieved_at": "2026-09-14T09:00:00+09:00",
+                "retrieved_at": "2026-09-13T09:00:00+09:00",
             }
         ],
         "snapshot": {"price": "230.10"},
@@ -92,7 +93,7 @@ def headers() -> dict[str, str]:
 
 
 def report_input(
-    index: int, analyzed_at: str = "2026-09-14T09:00:00+09:00"
+    index: int, analyzed_at: str = "2026-09-13T09:00:00+09:00"
 ) -> InvestmentReportInput:
     return InvestmentReportInput(
         run_id=f"run-{index}",
@@ -127,7 +128,7 @@ def report_input(
                 publisher="토스증권",
                 url="https://developers.tossinvest.com/",
                 published_at=None,
-                retrieved_at="2026-09-14T09:00:00+09:00",
+                retrieved_at=analyzed_at,
             ),
         ),
         snapshot={"price": "230.10"},
@@ -150,6 +151,62 @@ def test_internal_routes_require_configured_writer_token(tmp_path: Path) -> None
     assert unauthorized.status_code == 401
     assert unauthorized.headers["www-authenticate"] == "Bearer"
     assert wrong.status_code == 401
+
+
+def test_report_write_rejects_oversized_stream_before_authentication(tmp_path: Path) -> None:
+    path = tmp_path / "stock.db"
+    prepare_watchlist(path)
+
+    with TestClient(create_app(path, report_writer_token_loader=lambda: TOKEN)) as client:
+        response = client.post(
+            "/internal/v1/reports",
+            content=b"x" * (MAX_REPORT_BODY_BYTES + 1),
+        )
+
+    assert response.status_code == 413
+    assert response.json()["detail"]["code"] == "report_body_too_large"
+
+
+def test_report_body_limit_counts_streamed_chunks_without_content_length() -> None:
+    async def exercise_middleware() -> list[dict]:
+        chunks = iter(
+            (
+                {
+                    "type": "http.request",
+                    "body": b"x" * MAX_REPORT_BODY_BYTES,
+                    "more_body": True,
+                },
+                {"type": "http.request", "body": b"x", "more_body": False},
+            )
+        )
+        sent: list[dict] = []
+
+        async def receive() -> dict:
+            return next(chunks)
+
+        async def send(message: dict) -> None:
+            sent.append(message)
+
+        async def inner_app(scope: dict, receive, send) -> None:
+            while (await receive()).get("more_body"):
+                pass
+
+        middleware = _LimitReportBodyMiddleware(inner_app)
+        await middleware(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/internal/v1/reports",
+                "headers": [],
+            },
+            receive,
+            send,
+        )
+        return sent
+
+    messages = asyncio.run(exercise_middleware())
+
+    assert messages[0]["status"] == 413
 
 
 def test_lists_targets_and_builds_toss_context(tmp_path: Path) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import os
+import re
 import stat
 import tomllib
 from contextlib import suppress
@@ -10,6 +11,7 @@ from pathlib import Path
 
 DEFAULT_CREDENTIALS_FILE = Path("~/.config/stock-monitor/credentials.toml")
 DEFAULT_DATABASE_FILE = Path("~/.local/share/stock-monitor/stock.db")
+REPORT_WRITER_TOKEN = re.compile(r"^[A-Za-z0-9_-]{32,256}$")
 
 
 class CredentialsError(Exception):
@@ -79,8 +81,7 @@ def load_credentials(path: Path) -> Credentials:
         raise CredentialsError("client_secret_missing")
     if report_writer_token is not None and (
         not isinstance(report_writer_token, str)
-        or len(report_writer_token) < 32
-        or report_writer_token != report_writer_token.strip()
+        or REPORT_WRITER_TOKEN.fullmatch(report_writer_token) is None
     ):
         raise CredentialsError("report_writer_token_invalid")
     return Credentials(

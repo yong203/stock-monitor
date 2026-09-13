@@ -106,6 +106,18 @@ class ReportClientTest(unittest.TestCase):
             with self.assertRaisesRegex(client.ClientError, "invalid_config"):
                 client.load_config(path)
 
+    def test_rejects_non_ascii_writer_token(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "client.toml"
+            path.write_text(
+                'base_url = "http://192.168.0.29:8000"\n'
+                f'writer_token = "{"가" * 32}"\n'
+                'dart_api_key = ""\n'
+            )
+            path.chmod(0o600)
+            with self.assertRaisesRegex(client.ClientError, "invalid_config"):
+                client.load_config(path)
+
     def test_rejects_unsafe_config_permissions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "client.toml"

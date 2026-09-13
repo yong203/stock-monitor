@@ -180,6 +180,29 @@ def test_rejects_invalid_scalar_fields(tmp_path: Path, changed: dict[str, str], 
         repository.save_report(replace(report(), **changed))
 
 
+def test_rejects_analysis_and_retrieval_times_beyond_clock_skew(tmp_path: Path) -> None:
+    path = tmp_path / "stock.db"
+    prepare_database(path)
+    repository = InvestmentReportRepository(path)
+    now = datetime(2026, 9, 13, tzinfo=UTC)
+
+    with pytest.raises(ReportValidationError, match="invalid_analyzed_at"):
+        repository.save_report(replace(report(), analyzed_at="2026-09-13T00:05:01Z"), now=now)
+
+    future_source = replace(source(), retrieved_at="2026-09-13T00:05:01Z")
+    with pytest.raises(ReportValidationError, match="invalid_source_retrieved_at"):
+        repository.save_report(replace(report(), sources=(future_source,)), now=now)
+
+    repository.save_report(
+        replace(
+            report(),
+            analyzed_at="2026-09-13T00:05:00Z",
+            sources=(replace(source(), retrieved_at="2026-09-13T00:05:00Z"),),
+        ),
+        now=now,
+    )
+
+
 def test_rejects_unsafe_url_and_unreferenced_section_source(tmp_path: Path) -> None:
     path = tmp_path / "stock.db"
     prepare_database(path)
@@ -267,10 +290,19 @@ def test_opportunistic_retention_prunes_report_and_sources(tmp_path: Path) -> No
     path = tmp_path / "stock.db"
     prepare_database(path)
     repository = InvestmentReportRepository(path)
-    repository.save_report(report("old"), now=datetime(2025, 1, 1, tzinfo=UTC))
+    repository.save_report(
+        replace(
+            report("old", "2025-01-01T00:00:00Z"),
+            sources=(replace(source(), retrieved_at="2025-01-01T00:00:00Z"),),
+        ),
+        now=datetime(2025, 1, 1, tzinfo=UTC),
+    )
 
     repository.save_report(
-        report("new", "2026-01-02T00:00:00Z"),
+        replace(
+            report("new", "2026-01-02T00:00:00Z"),
+            sources=(replace(source(), retrieved_at="2026-01-02T00:00:00Z"),),
+        ),
         now=datetime(2026, 1, 2, tzinfo=UTC),
     )
 

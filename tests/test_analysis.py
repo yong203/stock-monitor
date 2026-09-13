@@ -83,6 +83,19 @@ def test_breakout_price_keeps_drawdown_and_range_metrics_bounded() -> None:
     assert metrics["position_in_200d_range_percent"] == "100.0000"
 
 
+def test_windowed_metrics_require_their_full_sample() -> None:
+    quote = PriceQuote("AAPL", Decimal("201"), "USD", None)
+
+    twenty = calculate_price_metrics(quote, candles(20), stock())
+    twenty_one = calculate_price_metrics(quote, candles(21), stock())
+    one_ninety_nine = calculate_price_metrics(quote, candles(199), stock())
+
+    assert twenty["annualized_volatility_20d_percent"] is None
+    assert twenty_one["annualized_volatility_20d_percent"] is not None
+    assert one_ninety_nine["drawdown_from_200d_high_percent"] is None
+    assert one_ninety_nine["position_in_200d_range_percent"] is None
+
+
 class FakeClient:
     def __init__(self, *, country: str, fail_optional: bool = False) -> None:
         self.country = country

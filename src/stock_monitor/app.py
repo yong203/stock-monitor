@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, conint, conlist, constr
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .analysis import build_toss_analysis
 from .database import initialize_database
@@ -47,7 +48,62 @@ from .watchlist import (
 )
 
 PACKAGE_ROOT = Path(__file__).parent
+MAX_REPORT_BODY_BYTES = 256 * 1024
 templates = Jinja2Templates(directory=PACKAGE_ROOT / "templates")
+
+
+class _ReportBodyTooLarge(Exception):
+    pass
+
+
+class _LimitReportBodyMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        is_report_write = (
+            scope["type"] == "http"
+            and scope["method"] == "POST"
+            and scope["path"] == "/internal/v1/reports"
+        )
+        if not is_report_write:
+            await self.app(scope, receive, send)
+            return
+
+        content_length = next(
+            (value for key, value in scope["headers"] if key.lower() == b"content-length"), None
+        )
+        try:
+            declared_size = int(content_length) if content_length is not None else None
+        except ValueError:
+            declared_size = None
+        if declared_size is not None and declared_size > MAX_REPORT_BODY_BYTES:
+            await _report_body_too_large_response(scope, receive, send)
+            return
+
+        received_size = 0
+
+        async def limited_receive() -> Message:
+            nonlocal received_size
+            message = await receive()
+            if message["type"] == "http.request":
+                received_size += len(message.get("body", b""))
+                if received_size > MAX_REPORT_BODY_BYTES:
+                    raise _ReportBodyTooLarge
+            return message
+
+        try:
+            await self.app(scope, limited_receive, send)
+        except _ReportBodyTooLarge:
+            await _report_body_too_large_response(scope, receive, send)
+
+
+async def _report_body_too_large_response(scope: Scope, receive: Receive, send: Send) -> None:
+    response = JSONResponse(
+        status_code=413,
+        content={"detail": {"code": "report_body_too_large"}},
+    )
+    await response(scope, receive, send)
 
 
 class AddWatchlistRequest(BaseModel):
@@ -157,6 +213,7 @@ def create_app(
         redoc_url=None,
         lifespan=lifespan,
     )
+    app.add_middleware(_LimitReportBodyMiddleware)
     app.mount("/static", StaticFiles(directory=PACKAGE_ROOT / "static"), name="static")
     repository = WatchlistRepository(selected_database)
     report_repository = InvestmentReportRepository(selected_database)

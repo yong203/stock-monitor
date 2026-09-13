@@ -27,6 +27,7 @@ MAX_SOURCES = 20
 MAX_JSON_BYTES = 32_000
 MAX_PAGE_SIZE = 50
 RETENTION_DAYS = 365
+MAX_FUTURE_SKEW = timedelta(minutes=5)
 
 
 class ReportValidationError(ValueError):
@@ -147,8 +148,8 @@ class InvestmentReportRepository:
     def save_report(
         self, report: InvestmentReportInput, *, now: datetime | None = None
     ) -> InvestmentReport:
-        normalized = _normalize_report(report)
         reference = _aware_datetime(now or datetime.now(UTC), "now")
+        normalized = _normalize_report(report, latest_allowed=reference + MAX_FUTURE_SKEW)
         created_at = _format_datetime(reference)
         cutoff = _format_datetime(reference - timedelta(days=RETENTION_DAYS))
 
@@ -285,13 +286,15 @@ class InvestmentReportRepository:
                 raise
 
 
-def _normalize_report(report: InvestmentReportInput) -> _NormalizedReport:
+def _normalize_report(
+    report: InvestmentReportInput, *, latest_allowed: datetime
+) -> _NormalizedReport:
     if not isinstance(report, InvestmentReportInput):
         raise ReportValidationError("invalid_report")
     run_id = _required_text(report.run_id, "run_id", 128)
     market = _choice(_required_text(report.market, "market", 16).upper(), MARKETS, "market")
     symbol = _required_text(report.symbol, "symbol", 64).upper()
-    analyzed_at = _timestamp(report.analyzed_at, "analyzed_at")
+    analyzed_at = _timestamp_at_most(report.analyzed_at, "analyzed_at", latest_allowed)
     price = _price(report.price)
     currency = _required_text(report.currency, "currency", 8).upper()
     if len(currency) != 3 or not currency.isalpha() or not currency.isascii():
@@ -308,7 +311,9 @@ def _normalize_report(report: InvestmentReportInput) -> _NormalizedReport:
     if not isinstance(report.sources, tuple) or not 1 <= len(report.sources) <= MAX_SOURCES:
         raise ReportValidationError("invalid_sources")
 
-    sources = tuple(_normalize_source(source) for source in report.sources)
+    sources = tuple(
+        _normalize_source(source, latest_allowed=latest_allowed) for source in report.sources
+    )
     source_keys = [source.source_key for source in sources]
     if len(source_keys) != len(set(source_keys)):
         raise ReportValidationError("duplicate_source_key")
@@ -371,7 +376,7 @@ def _normalize_report(report: InvestmentReportInput) -> _NormalizedReport:
     )
 
 
-def _normalize_source(source: ReportSourceInput) -> ReportSourceInput:
+def _normalize_source(source: ReportSourceInput, *, latest_allowed: datetime) -> ReportSourceInput:
     if not isinstance(source, ReportSourceInput):
         raise ReportValidationError("invalid_source")
     url = _required_text(source.url, "source_url", 2_048)
@@ -395,7 +400,7 @@ def _normalize_source(source: ReportSourceInput) -> ReportSourceInput:
             if source.published_at is not None
             else None
         ),
-        retrieved_at=_timestamp(source.retrieved_at, "source_retrieved_at"),
+        retrieved_at=_timestamp_at_most(source.retrieved_at, "source_retrieved_at", latest_allowed),
     )
 
 
@@ -567,6 +572,14 @@ def _timestamp(value: object, field: str) -> str:
     except ValueError as error:
         raise ReportValidationError(f"invalid_{field}") from error
     return _format_datetime(_aware_datetime(parsed, field))
+
+
+def _timestamp_at_most(value: object, field: str, latest_allowed: datetime) -> str:
+    normalized = _timestamp(value, field)
+    parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    if parsed > latest_allowed:
+        raise ReportValidationError(f"invalid_{field}")
+    return normalized
 
 
 def _aware_datetime(value: object, field: str) -> datetime:

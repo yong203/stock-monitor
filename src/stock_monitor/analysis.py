@@ -112,7 +112,7 @@ def calculate_price_metrics(
             average_volume[str(window)] = None
 
     recent_closes = closes[-21:]
-    if len(recent_closes) >= 3 and all(value > 0 for value in recent_closes):
+    if len(recent_closes) == 21 and all(value > 0 for value in recent_closes):
         log_returns = [
             math.log(float(current / previous))
             for previous, current in zip(recent_closes, recent_closes[1:], strict=False)
@@ -121,7 +121,7 @@ def calculate_price_metrics(
             statistics.stdev(log_returns) * math.sqrt(252)
         )
 
-    if ordered:
+    if len(ordered) >= 200:
         recent = ordered[-200:]
         high = max(quote.last_price, *(candle.high_price for candle in recent))
         low = min(quote.last_price, *(candle.low_price for candle in recent))

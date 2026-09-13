@@ -57,6 +57,11 @@ def test_loads_optional_report_writer_token_without_exposing_it(tmp_path: Path) 
             'report_writer_token = "                                "',
             "report_writer_token_invalid",
         ),
+        (
+            'client_id = "test-id"\nclient_secret = "test-secret"\n'
+            f'report_writer_token = "{"가" * 32}"',
+            "report_writer_token_invalid",
+        ),
         ("client_id = [", "credentials_invalid_toml"),
     ],
 )

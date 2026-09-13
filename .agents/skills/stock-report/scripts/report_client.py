@@ -34,6 +34,7 @@ MAX_DART_CORP_MATCHES = 20
 MAX_REPORT_JSON_BYTES = 32_000
 DATE = re.compile(r"^\d{8}$")
 SOURCE_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+WRITER_TOKEN = re.compile(r"^[A-Za-z0-9_-]{32,256}$")
 STANCE = {"favorable", "balanced", "cautious", "insufficient"}
 CONFIDENCE = {"high", "medium", "low"}
 CHANGE_LABEL = {"initial", "view_changed", "view_reinforced", "facts_updated", "unchanged"}
@@ -91,8 +92,7 @@ def load_config(path: Path) -> Config:
     if (
         not isinstance(base_url, str)
         or not isinstance(writer_token, str)
-        or len(writer_token) < 32
-        or writer_token != writer_token.strip()
+        or WRITER_TOKEN.fullmatch(writer_token) is None
     ):
         raise ClientError("invalid_config")
     if not isinstance(dart_api_key, str) or (

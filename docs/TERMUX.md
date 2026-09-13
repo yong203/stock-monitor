@@ -41,7 +41,7 @@ chmod 600 "$HOME/.config/stock-monitor/credentials.toml"
 ```toml
 client_id = "실제 토스 client ID"
 client_secret = "실제 토스 client secret"
-report_writer_token = "32자 이상 임의 문자열"
+report_writer_token = "32~256자의 영문·숫자·하이픈·밑줄 문자열"
 ```
 
 쓰기 토큰은 다음처럼 한 번 생성하고 스마트폰과 Mac 설정에 같은 값을 넣는다.
