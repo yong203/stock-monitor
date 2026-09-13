@@ -99,7 +99,7 @@ cd "$HOME/stock-monitor"
 기존에 수동 실행한 Uvicorn이 있으면 `ps`에서 명령행과 PID를 확인한 뒤 그 PID만 종료한다. 광범위한 `pkill`은 사용하지 않는다.
 
 ```sh
-ps -A -o pid,ppid,args | grep '[u]vicorn stock_monitor.app'
+ps -A -o pid,ppid,args | awk '$3 ~ /(^|\/)uvicorn$/ {print}'
 kill <확인한-PID>
 ./scripts/install-termux-services --enable
 ```
@@ -118,7 +118,7 @@ tail -f "$PREFIX/var/log/sv/stock-monitor/current"
 백업 서비스는 시작 직후 SQLite 온라인 백업을 만들고 이후 24시간마다 반복한다. 실패하면 5분 뒤 다시 시도한다. 백업은 기본 7개를 보관하고 각 파일 권한은 `600`이다.
 
 ```sh
-stock-monitor backup-db
+"$HOME/stock-monitor/.venv/bin/stock-monitor" backup-db
 ls -la "$HOME/.local/share/stock-monitor/backups"
 ```
 
