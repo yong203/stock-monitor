@@ -126,9 +126,12 @@ Toss 자격 증명이나 실행 중인 서버를 중단하지 않고 백업할 �
 
 ## 스마트폰 재부팅 자동 시작
 
-설치 스크립트는 `$HOME/.termux/boot/10-stock-monitor`도 준비한다. [공식 안내](https://github.com/termux/termux-boot/blob/master/README.md)에 따라 별도로 **Termux:Boot를 현재 Termux와 같은 배포처에서 설치하고 앱 아이콘을 한 번 실행**해야 Android 부팅 때 이 파일이 실행된다.
+설치 스크립트는 `$HOME/.termux/boot/10-stock-monitor`도 준비한다. `termux-info`의 `TERMUX_VERSION`으로 설치 계열을 확인한다.
 
-Samsung 설정에서 Termux와 Termux:Boot 두 앱의 배터리를 `제한 없음`으로 지정한다. 그다음 스마트폰을 재부팅하고 잠금 해제 후 아래를 확인한다.
+- **Google Play판:** 2024.10.24부터 [부팅 기능이 Termux 본 앱에 통합](https://github.com/termux-play-store)되었다. 별도 Termux:Boot를 설치하지 않는다.
+- **F-Droid/GitHub판:** [공식 안내](https://github.com/termux/termux-boot/blob/master/README.md)에 따라 Termux와 같은 배포처의 Termux:Boot를 설치하고 앱 아이콘을 한 번 실행한다. 서로 다른 배포처의 앱을 섞지 않는다.
+
+Samsung 설정에서 Google Play판은 Termux를, 별도 Boot 앱을 사용하는 계열은 두 앱 모두 배터리 `제한 없음`으로 지정한다. 그다음 스마트폰을 재부팅하고 잠금 해제 후 아래를 확인한다.
 
 ```sh
 sv status stock-monitor stock-monitor-backup
@@ -136,4 +139,4 @@ curl -fsS http://127.0.0.1:8000/health/live
 curl -fsS http://127.0.0.1:8000/health/market-data
 ```
 
-Termux:Boot 설치 전에는 앱 자동 시작과 wake lock을 실제 재부팅으로 검증할 수 없다.
+현재 운영 폰은 Google Play판 `googleplay.2025.10.05`이므로 별도 앱 없이 재부팅 검증한다.
