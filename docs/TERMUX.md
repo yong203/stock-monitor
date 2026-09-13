@@ -139,4 +139,4 @@ curl -fsS http://127.0.0.1:8000/health/live
 curl -fsS http://127.0.0.1:8000/health/market-data
 ```
 
-현재 운영 폰은 Google Play판 `googleplay.2025.10.05`이므로 별도 앱 없이 재부팅 검증한다.
+현재 운영 폰은 Google Play판 `googleplay.2025.10.05`이며, v0.5.1 배포 뒤 재부팅해 SSH·웹·백업 서비스 자동 시작을 검증했다.
