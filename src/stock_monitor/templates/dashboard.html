@@ -20,9 +20,18 @@
   </section>
 
   <section class="market-strip" aria-label="시장 상태">
-    <div><span>한국</span><strong>시장 시간 확인 준비 중</strong></div>
-    <div><span>미국</span><strong>시장 시간 확인 준비 중</strong></div>
+    <article class="market-status loading" data-market-status data-country="KR">
+      <span class="market-country">한국</span>
+      <strong class="market-phase">시장 시간 확인 중</strong>
+      <span class="market-next">Toss 일정을 불러오는 중</span>
+    </article>
+    <article class="market-status loading" data-market-status data-country="US">
+      <span class="market-country">미국</span>
+      <strong class="market-phase">시장 시간 확인 중</strong>
+      <span class="market-next">Toss 일정을 불러오는 중</span>
+    </article>
   </section>
+  <p class="sr-only" id="market-state-announcement" aria-live="polite" aria-atomic="true"></p>
 
   {% if items %}
     <div class="filters" role="group" aria-label="관심종목 필터">
@@ -56,7 +65,7 @@
               <span class="change-text">전일 대비 준비 중</span>
             </div>
             <footer>
-              <span class="quote-status">시세 대기</span>
+              <span class="quote-status">시장 확인 중 · 시세 대기</span>
               <time class="quote-time">업데이트 대기</time>
             </footer>
           </article>

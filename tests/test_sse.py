@@ -22,6 +22,14 @@ class FakeService:
             {
                 "revision": 7,
                 "connection": {"status": "connected", "error": None},
+                "markets": {
+                    "KR": {
+                        "status": "ready",
+                        "phase": "holiday",
+                        "session": None,
+                        "next_event": None,
+                    }
+                },
                 "quotes": [],
             }
         )
@@ -60,6 +68,7 @@ def test_sse_starts_with_latest_full_snapshot_and_cleans_up(tmp_path: Path) -> N
             event = await anext(response.body_iterator)
             assert event.startswith("id: 7\n")
             assert '"status":"connected"' in event
+            assert '"phase":"holiday"' in event
             assert '"quotes":[]' in event
             await response.body_iterator.aclose()
 

@@ -19,12 +19,15 @@ from .live import (
     WebSocket,
 )
 from .market_data import (
+    Country,
     DailyCandle,
+    MarketCalendar,
     MarketDataClient,
     MarketDataError,
     TokenLease,
     select_previous_business_day_candle,
 )
+from .market_sessions import MarketSessionMonitor
 from .settings import CredentialsError, credentials_path, load_credentials
 from .watchlist import WatchlistItem, WatchlistRepository
 
@@ -83,6 +86,10 @@ class TossSnapshotProvider:
         self._watchlist = WatchlistRepository(database_path)
         self._baselines = BaselineRepository(database_path)
         self._sleep = sleep
+        self._calendar_cache: MarketSessionMonitor | None = None
+
+    def set_calendar_cache(self, cache: MarketSessionMonitor) -> None:
+        self._calendar_cache = cache
 
     async def fetch(
         self, token: AccessToken, keys: tuple[QuoteKey, ...]
@@ -120,9 +127,11 @@ class TossSnapshotProvider:
         calendars = {}
         for country in sorted({key.market.upper() for key in keys}):
             try:
-                calendars[country] = await self._client.get_market_calendar(country)
+                calendar = await self._cached_calendar(country)  # type: ignore[arg-type]
             except (MarketDataError, ValueError):
                 continue
+            if calendar is not None:
+                calendars[country] = calendar
 
         result = {}
         for key in keys:
@@ -154,6 +163,13 @@ class TossSnapshotProvider:
             result[key] = (trading_date, candle.close_price)
         return result
 
+    async def _cached_calendar(self, country: Country) -> MarketCalendar | None:
+        if self._calendar_cache is not None:
+            cached = await self._calendar_cache.get(country)
+            if cached is not None:
+                return cached
+        return await self._client.get_market_calendar(country)
+
     async def _daily_candles_with_retry(self, symbol: str) -> tuple[DailyCandle, ...]:
         for attempt in range(2):
             try:
@@ -171,18 +187,35 @@ class TossSnapshotProvider:
 
 
 class MarketDataRuntime:
-    def __init__(self, client: MarketDataClient, service: LiveQuoteService) -> None:
+    def __init__(
+        self,
+        client: MarketDataClient,
+        service: LiveQuoteService,
+        session_monitor: MarketSessionMonitor,
+    ) -> None:
         self.client = client
         self.service = service
+        self._session_monitor = session_monitor
 
     async def start(self, database_path: Path) -> None:
         items = await asyncio.to_thread(WatchlistRepository(database_path).list_items)
         await self.service.set_desired(_quote_keys(items))
         await self.service.start()
+        try:
+            await self._session_monitor.start()
+        except Exception:
+            await self.service.stop()
+            await self.client.aclose()
+            raise
 
     async def stop(self) -> None:
-        await self.service.stop()
-        await self.client.aclose()
+        try:
+            await self._session_monitor.stop()
+        finally:
+            try:
+                await self.service.stop()
+            finally:
+                await self.client.aclose()
 
     async def refresh_watchlist(self, database_path: Path) -> None:
         items = await asyncio.to_thread(WatchlistRepository(database_path).list_items)
@@ -195,12 +228,15 @@ def build_market_data_runtime(database_path: Path) -> MarketDataRuntime | None:
     except CredentialsError:
         return None
     client = MarketDataClient(credentials)
+    snapshot_provider = TossSnapshotProvider(client, database_path)
     service = LiveQuoteService(
         TossTokenProvider(client),
-        TossSnapshotProvider(client, database_path),
+        snapshot_provider,
         TossWebSocketConnector(),
     )
-    return MarketDataRuntime(client, service)
+    session_monitor = MarketSessionMonitor(client, service.set_markets)
+    snapshot_provider.set_calendar_cache(session_monitor)
+    return MarketDataRuntime(client, service, session_monitor)
 
 
 def _quote_keys(items: Iterable[WatchlistItem]) -> tuple[QuoteKey, ...]:

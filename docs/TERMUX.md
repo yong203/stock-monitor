@@ -85,6 +85,6 @@ http://<스마트폰의 고정 LAN IP>:8000/health/market-data
 
 대시보드는 `http://<스마트폰의 고정 LAN IP>:8000`, 관심종목 관리는 `/watchlist`에서 연다.
 
-실시간 서비스는 토큰과 Toss WebSocket 연결을 프로세스 안에서 하나만 유지하므로 Uvicorn worker를 늘리지 않는다. 네트워크가 끊기면 마지막 가격을 유지한 채 자동 재연결하며, `/health/market-data`에서 비밀값 없는 연결 상태를 확인할 수 있다.
+실시간 서비스는 토큰과 Toss WebSocket 연결을 프로세스 안에서 하나만 유지하므로 Uvicorn worker를 늘리지 않는다. 네트워크가 끊기면 마지막 가격을 유지한 채 자동 재연결한다. `/health/market-data`는 비밀값 없이 시세 연결과 시장 캘린더의 `calendar_status`를 함께 보여준다.
 
 자동 시작과 상시 서비스 구성은 실시간 MVP를 배포하는 Phase 1에서 진행한다.

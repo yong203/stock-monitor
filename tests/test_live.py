@@ -12,6 +12,7 @@ from stock_monitor.live import (
     QuoteKey,
     QuoteUpdate,
 )
+from stock_monitor.market_sessions import MarketStatus, NextMarketEvent
 
 
 class FakeTokenProvider:
@@ -171,6 +172,44 @@ def test_slow_subscriber_keeps_only_latest_full_snapshot() -> None:
         assert [item["symbol"] for item in latest["quotes"]] == ["MSFT"]
         await service.unsubscribe(subscription)
         assert (await service.health())["subscribers"] == 0
+
+    run(scenario())
+
+
+def test_market_status_is_serialized_and_uses_latest_only_fanout() -> None:
+    async def scenario() -> None:
+        service = LiveQuoteService(
+            FakeTokenProvider(), ControlledSnapshotProvider(), FakeConnector()
+        )
+        subscription = await service.subscribe()
+        at = datetime(2026, 9, 14, 6, 30, tzinfo=UTC)
+        ready = (
+            MarketStatus(
+                "KR",
+                "ready",
+                "open",
+                "regular",
+                NextMarketEvent("end", "regular", at),
+                at,
+                None,
+            ),
+            MarketStatus("US", "ready", "holiday", None, None, at, None),
+        )
+        stale = (
+            ready[0],
+            MarketStatus("US", "stale", "holiday", None, None, at, "calendar_unavailable"),
+        )
+
+        await service.set_markets(ready)
+        await service.set_markets(stale)
+
+        assert subscription.queue.qsize() == 1
+        latest = subscription.queue.get_nowait()
+        assert latest["markets"]["KR"]["session"] == "regular"
+        assert latest["markets"]["KR"]["next_event"]["kind"] == "end"
+        assert latest["markets"]["US"]["status"] == "stale"
+        assert (await service.health())["calendar_status"] == "stale"
+        await service.unsubscribe(subscription)
 
     run(scenario())
 

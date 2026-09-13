@@ -182,7 +182,11 @@ def create_app(
                 content={"status": "configuration_error", "error": "toss_not_configured"},
             )
         health = await runtime.service.health()
-        status_code = 200 if health["status"] in {"idle", "connected"} else 503
+        status_code = (
+            200
+            if health["status"] in {"idle", "connected"} and health.get("calendar_status") == "ok"
+            else 503
+        )
         return JSONResponse(status_code=status_code, content=health)
 
     @app.get("/health/live")

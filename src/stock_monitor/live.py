@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Protocol
 
+from .market_sessions import MarketStatus
+
 PING_INTERVAL_SECONDS = 60.0
 PONG_TIMEOUT_SECONDS = 15.0
 SUBSCRIPTION_DEBOUNCE_SECONDS = 0.25
@@ -153,6 +155,7 @@ class LiveQuoteService:
         self._desired: tuple[QuoteKey, ...] = ()
         self._desired_version = 0
         self._quotes: dict[QuoteKey, Quote] = {}
+        self._markets: dict[str, MarketStatus] = {}
         self._quote_versions: dict[QuoteKey, int] = {}
         self._subscribed: set[QuoteKey] = set()
         self._subscribers: set[asyncio.Queue[dict[str, object]]] = set()
@@ -227,6 +230,16 @@ class LiveQuoteService:
             queue.put_nowait(self._snapshot_locked())
         return Subscription(queue)
 
+    async def set_markets(self, statuses: tuple[MarketStatus, ...]) -> None:
+        markets = {status.country: status for status in statuses}
+        if set(markets) != {"KR", "US"}:
+            raise ValueError("market statuses must contain KR and US")
+        async with self._lock:
+            if markets == self._markets:
+                return
+            self._markets = markets
+            self._publish_locked()
+
     async def unsubscribe(self, subscription: Subscription) -> None:
         async with self._lock:
             self._subscribers.discard(subscription.queue)
@@ -248,6 +261,12 @@ class LiveQuoteService:
                 "reconnect_attempt": self._reconnect_attempt,
                 "last_message_age_seconds": round(age, 3) if age is not None else None,
                 "error": self._last_error,
+                "calendar_status": _calendar_health(self._markets.values()),
+                "calendar_errors": {
+                    country: status.error
+                    for country, status in self._markets.items()
+                    if status.error is not None
+                },
             }
 
     async def _supervise(self) -> None:
@@ -671,6 +690,7 @@ class LiveQuoteService:
                 "status": self._connection_status,
                 "error": self._last_error,
             },
+            "markets": {country: status.as_dict() for country, status in self._markets.items()},
             "quotes": [_quote_dict(self._quotes[key]) for key in self._desired],
         }
 
@@ -751,3 +771,12 @@ def _quote_dict(quote: Quote) -> dict[str, object]:
         "status": quote.status,
         "error": quote.error,
     }
+
+
+def _calendar_health(statuses: Iterable[MarketStatus]) -> str:
+    values = tuple(status.status for status in statuses)
+    if not values or all(value in {"loading", "error"} for value in values):
+        return "unavailable"
+    if any(value in {"stale", "error"} for value in values):
+        return "stale"
+    return "ok" if all(value == "ready" for value in values) else "unavailable"
