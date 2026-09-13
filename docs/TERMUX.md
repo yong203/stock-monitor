@@ -4,7 +4,7 @@
 
 - 소스와 가상환경: `$HOME/stock-monitor`
 - 비밀값: `$HOME/.config/stock-monitor/credentials.toml`
-- 향후 데이터베이스: `$HOME/.local/share/stock-monitor/stock.db`
+- 데이터베이스: `$HOME/.local/share/stock-monitor/stock.db`
 
 공유 저장소(`/sdcard`, `$HOME/storage`)에는 소스·비밀값·DB를 두지 않는다.
 
@@ -36,7 +36,20 @@ cp config/credentials.toml.example "$HOME/.config/stock-monitor/credentials.toml
 chmod 600 "$HOME/.config/stock-monitor/credentials.toml"
 ```
 
-파일에는 토스증권 WTS의 `설정 > Open API`에서 발급한 `client_id`, `client_secret` 두 값만 둔다.
+파일에는 토스증권 WTS의 `설정 > Open API`에서 발급한 `client_id`, `client_secret`과 Mac 보고서 쓰기 전용 `report_writer_token`을 둔다. 세 값 모두 큰따옴표 안에 입력한다.
+
+```toml
+client_id = "실제 토스 client ID"
+client_secret = "실제 토스 client secret"
+report_writer_token = "32자 이상 임의 문자열"
+```
+
+쓰기 토큰은 다음처럼 한 번 생성하고 스마트폰과 Mac 설정에 같은 값을 넣는다.
+
+```sh
+python -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
 같은 화면의 `허용 IP 관리`에는 집 Wi-Fi의 현재 공인 IP를 등록한다. LTE 전환이나 통신사·공유기 환경 변화로 공인 IP가 바뀌면 다시 등록해야 한다.
 
 ## 연결 진단
@@ -140,3 +153,29 @@ curl -fsS http://127.0.0.1:8000/health/market-data
 ```
 
 현재 운영 폰은 Google Play판 `googleplay.2025.10.05`이며, v0.5.1 배포 뒤 재부팅해 SSH·웹·백업 서비스 자동 시작을 검증했다.
+
+## Mac에서 투자 보고서 생성
+
+스마트폰의 `report_writer_token`과 같은 값을 Mac의 전용 설정에 넣고 권한을 제한한다. `dart_api_key`에는 OpenDART에서 발급한 키를 입력한다.
+
+```sh
+mkdir -p "$HOME/.config/stock-monitor"
+cp config/report-client.toml.example "$HOME/.config/stock-monitor/report-client.toml"
+chmod 600 "$HOME/.config/stock-monitor/report-client.toml"
+```
+
+```toml
+base_url = "http://192.168.0.29:8000"
+writer_token = "스마트폰과 같은 report_writer_token"
+dart_api_key = "실제 OpenDART API 키"
+```
+
+Mac이 같은 집 Wi-Fi에 있고 스마트폰 서버가 실행 중일 때 Codex에서 저장소를 열고 다음처럼 명시적으로 실행한다.
+
+```text
+$stock-report 삼성전자
+$stock-report AAPL
+$stock-report 관심종목 전체
+```
+
+스킬은 핵심 Toss 시세가 없으면 보고서를 저장하지 않는다. 그 밖의 자료가 부족하거나 충돌하면 `판단 보류` 보고서를 저장한다. 토큰과 API 키를 명령행 인자로 전달하거나 대화·Git·로그에 남기지 않는다.
