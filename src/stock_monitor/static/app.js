@@ -199,21 +199,24 @@ const formatPercent = (value) =>
     maximumFractionDigits: 2,
   }).format(value);
 
-const formatKst = (value) => {
+const formatKst = (value, includeSeconds = true) => {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return {
-    datetime: date.toISOString(),
-    label: `${new Intl.DateTimeFormat("ko-KR", {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-GB", {
       timeZone: "Asia/Seoul",
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
-      second: "2-digit",
+      second: includeSeconds ? "2-digit" : undefined,
       hourCycle: "h23",
-    }).format(date)} KST`,
+    }).formatToParts(date).map(({ type, value: part }) => [type, part]),
+  );
+  return {
+    datetime: date.toISOString(),
+    label: `${parts.month}/${parts.day} ${parts.hour}:${parts.minute}${includeSeconds ? `:${parts.second}` : ""} KST`,
   };
 };
 
@@ -231,6 +234,22 @@ const quoteStatusLabels = {
   ip_forbidden: "허용 IP 확인 필요",
   pending: "시세 대기",
   connecting: "연결 중",
+};
+
+const connectionStatusLabels = {
+  idle: "시세 서버 대기",
+  live: "시세 서버 연결됨",
+  connected: "시세 서버 연결됨",
+  ready: "시세 서버 연결됨",
+  delayed: "시세 서버 응답 지연",
+  stale: "시세 서버 응답 지연",
+  disconnected: "화면 연결 끊김 · 재연결 중",
+  unavailable: "시세 서버 상태 확인 필요",
+  error: "시세 서버 오류",
+  auth_error: "시세 서버 인증 오류",
+  ip_forbidden: "시세 서버 허용 IP 확인 필요",
+  pending: "시세 연결 준비 중",
+  connecting: "시세 서버 연결 중",
 };
 
 const connectionStatusClasses = new Set([
@@ -256,8 +275,175 @@ const setConnection = (status, label) => {
   connectionStatusClasses.forEach((item) => connection.classList.remove(item));
   const safeStatus = connectionStatusClasses.has(status) ? status : "unavailable";
   connection.classList.add(safeStatus);
-  const nextLabel = label || quoteStatusLabels[safeStatus] || "시세 상태 확인 필요";
+  const nextLabel = label || connectionStatusLabels[safeStatus] || "시세 서버 상태 확인 필요";
   if (text.textContent !== nextLabel) text.textContent = nextLabel;
+};
+
+const marketStatusClasses = new Set(["loading", "ready", "stale", "error"]);
+const marketPhaseClasses = new Set([
+  "phase-preopen",
+  "phase-open",
+  "phase-between",
+  "phase-closed",
+  "phase-holiday",
+  "phase-unknown",
+]);
+const cardVisualClasses = new Set([
+  ...connectionStatusClasses,
+  "market-open",
+  "market-preopen",
+  "market-between",
+  "market-closed",
+  "market-holiday",
+  "market-unknown",
+]);
+const marketCountries = ["KR", "US"];
+const marketSessionLabels = {
+  KR: { pre: "NXT 장전", regular: "정규장", after: "NXT 장후" },
+  US: { day: "데이마켓", pre: "프리마켓", regular: "정규장", after: "애프터마켓" },
+};
+
+const normalizedMarket = (value) => {
+  const market = value && typeof value === "object" ? value : {};
+  return {
+    status: marketStatusClasses.has(market.status) ? market.status : "error",
+    phase: ["preopen", "open", "between", "closed", "holiday"].includes(market.phase)
+      ? market.phase
+      : null,
+    session: typeof market.session === "string" ? market.session : null,
+    error: typeof market.error === "string" ? market.error : null,
+    nextEvent: market.next_event && typeof market.next_event === "object"
+      ? market.next_event
+      : null,
+  };
+};
+
+const sessionLabel = (country, session) =>
+  marketSessionLabels[country]?.[session] || "거래 세션";
+
+const nextEventDescription = (country, nextEvent) => {
+  if (!nextEvent) return null;
+  const time = formatKst(nextEvent.at, false);
+  if (!time) return null;
+  const kind = nextEvent.kind;
+  const isEnd = kind === "end" || kind === "close";
+  return {
+    datetime: time.datetime,
+    time: time.label,
+    suffix: isEnd ? "마감" : `${sessionLabel(country, nextEvent.session)} 시작`,
+  };
+};
+
+const marketDescription = (country, value) => {
+  const market = normalizedMarket(value);
+  const next = nextEventDescription(country, market.nextEvent);
+  if (market.status === "loading") {
+    return { ...market, label: "시장 시간 확인 중", detail: "Toss 일정을 불러오는 중", next: null };
+  }
+  if (market.error === "ip_forbidden") {
+    return { ...market, label: "허용 IP 확인 필요", detail: "Toss 앱의 등록 공인 IP를 확인하세요", next };
+  }
+  if (market.error === "auth_error") {
+    return { ...market, label: "시장 일정 인증 오류", detail: "Toss API 인증 정보를 확인하세요", next };
+  }
+  if (market.error === "rate_limited") {
+    return { ...market, label: "시장 시간 요청 지연", detail: "Toss 재시도 대기 중", next };
+  }
+  if (market.status === "error" || !market.phase) {
+    return { ...market, label: "시장 시간 확인 불가", detail: "잠시 후 다시 확인", next: null };
+  }
+  if (market.status === "stale") {
+    return { ...market, label: "시장 시간 지연", detail: "최신 일정을 확인하는 중", next };
+  }
+  const labels = {
+    preopen: "개장 전",
+    open: sessionLabel(country, market.session),
+    between: "세션 전환 대기",
+    closed: "장 마감",
+    holiday: "휴장",
+  };
+  return {
+    ...market,
+    label: labels[market.phase],
+    detail: next ? "" : market.phase === "open" ? "종료 시간 확인 중" : "다음 일정 확인 중",
+    next,
+  };
+};
+
+const setMarketDetail = (element, description) => {
+  element.replaceChildren();
+  if (!description.next) {
+    element.textContent = description.detail;
+    return;
+  }
+  const time = document.createElement("time");
+  time.dateTime = description.next.datetime;
+  time.textContent = description.next.time;
+  element.append(time, document.createTextNode(` · ${description.next.suffix}`));
+};
+
+let lastMarketAnnouncement = "";
+
+const renderMarkets = (markets) => {
+  const rendered = new Map();
+  marketCountries.forEach((country) => {
+    const description = marketDescription(country, markets?.[country]);
+    rendered.set(country, description);
+    const tile = document.querySelector(`[data-market-status][data-country="${country}"]`);
+    if (!tile) return;
+    marketStatusClasses.forEach((item) => tile.classList.remove(item));
+    marketPhaseClasses.forEach((item) => tile.classList.remove(item));
+    tile.classList.add(description.status, `phase-${description.phase || "unknown"}`);
+    tile.querySelector(".market-phase").textContent = description.label;
+    setMarketDetail(tile.querySelector(".market-next"), description);
+  });
+
+  const announcement = document.querySelector("#market-state-announcement");
+  const nextAnnouncement = marketCountries
+    .map((country) => `${country === "KR" ? "한국" : "미국"} ${rendered.get(country).label}`)
+    .join(", ");
+  if (announcement && nextAnnouncement !== lastMarketAnnouncement) {
+    announcement.textContent = nextAnnouncement;
+    lastMarketAnnouncement = nextAnnouncement;
+  }
+  return rendered;
+};
+
+const markMarketsDisconnected = (latestMarkets) => {
+  const fallback = {};
+  marketCountries.forEach((country) => {
+    const current = latestMarkets.get(country);
+    fallback[country] = current
+      ? {
+          status: "stale",
+          phase: current.phase || "unknown",
+          session: current.session,
+          next_event: current.nextEvent,
+        }
+      : { status: "error", phase: "unknown", session: null, next_event: null };
+  });
+  const rendered = renderMarkets(fallback);
+  rendered.forEach((market, country) => latestMarkets.set(country, market));
+};
+
+const marketAllowsLive = (market) =>
+  market?.status === "ready" && market.phase === "open" && Boolean(market.session);
+
+const cardMarketLabel = (market) => {
+  if (!market) return "시장 확인 중";
+  return market.label;
+};
+
+const cardQuoteLabel = (market, status, hasPrice) => {
+  if (["auth_error", "ip_forbidden", "disconnected", "error", "unavailable"].includes(status)) {
+    return quoteStatusLabels[status];
+  }
+  if (["delayed", "stale"].includes(status)) return "시세 지연";
+  if (marketAllowsLive(market) && ["live", "connected", "ready"].includes(status)) {
+    return "실시간";
+  }
+  if (hasPrice) return market?.status === "ready" ? "마지막 가격" : "최신 가격";
+  return quoteStatusLabels[status] || "시세 대기";
 };
 
 const quoteDirection = (quote, change) => {
@@ -267,7 +453,7 @@ const quoteDirection = (quote, change) => {
   return change > 0 ? "up" : "down";
 };
 
-const renderQuote = (card, quote) => {
+const renderQuote = (card, quote, market) => {
   const price = numericValue(quote.price);
   const change = numericValue(quote.change);
   const percent = numericValue(quote.change_percent);
@@ -282,9 +468,17 @@ const renderQuote = (card, quote) => {
   const changeText = card.querySelector(".change-text");
   const time = card.querySelector(".quote-time");
 
-  card.classList.remove(...connectionStatusClasses);
-  card.classList.add(status);
-  statusElement.textContent = quoteStatusLabels[status];
+  card.classList.remove(...cardVisualClasses);
+  const live = marketAllowsLive(market) && ["live", "connected", "ready"].includes(status);
+  if (
+    live ||
+    ["delayed", "stale", "disconnected", "unavailable", "error", "auth_error", "ip_forbidden"].includes(status)
+  ) {
+    card.classList.add(live ? "live" : status);
+  } else {
+    card.classList.add(`market-${market?.phase || "unknown"}`);
+  }
+  statusElement.textContent = `${cardMarketLabel(market)} · ${cardQuoteLabel(market, status, price !== null)}`;
 
   if (price !== null && currency) {
     priceValue.textContent = formatAmount(price, currency, currency === "USD" ? 2 : 0);
@@ -328,37 +522,52 @@ const renderQuote = (card, quote) => {
   }
 };
 
-const renderQuoteSnapshot = (snapshot, cards) => {
+const renderQuoteSnapshot = (snapshot, cards, latestMarkets, latestQuotes) => {
   if (!snapshot || typeof snapshot !== "object") return;
   const connection = snapshot.connection;
   if (connection && typeof connection === "object") {
-    setConnection(connection.status, connection.label);
+    setConnection(connection.status);
   }
-  if (!Array.isArray(snapshot.quotes)) return;
-  snapshot.quotes.forEach((quote) => {
-    if (!quote || typeof quote !== "object") return;
-    const card = cards.get(quoteKey(quote.market, quote.symbol));
-    if (card) renderQuote(card, quote);
+  const renderedMarkets = renderMarkets(snapshot.markets);
+  renderedMarkets.forEach((market, country) => latestMarkets.set(country, market));
+  if (Array.isArray(snapshot.quotes)) {
+    snapshot.quotes.forEach((quote) => {
+      if (!quote || typeof quote !== "object") return;
+      latestQuotes.set(quoteKey(quote.market, quote.symbol), quote);
+    });
+  }
+  cards.forEach(({ card, country }, key) => {
+    const quote = latestQuotes.get(key) || { status: "pending" };
+    renderQuote(card, quote, latestMarkets.get(country));
   });
 };
 
 const setupQuoteStream = () => {
   const quoteCards = [...document.querySelectorAll("[data-quote-card]")];
-  if (!quoteCards.length) return;
+  const marketTiles = [...document.querySelectorAll("[data-market-status]")];
+  if (!quoteCards.length && !marketTiles.length) return;
   if (!("EventSource" in window)) {
     setConnection("unavailable", "이 브라우저는 실시간 시세를 지원하지 않습니다");
+    renderMarkets({});
     return;
   }
   const cards = new Map(
     quoteCards.map((card) => {
       const item = card.closest("[data-country][data-symbol]");
-      return [quoteKey(item.dataset.country, item.dataset.symbol), card];
+      return [
+        quoteKey(item.dataset.country, item.dataset.symbol),
+        { card, country: item.dataset.country.toUpperCase() },
+      ];
     }),
   );
+  const latestMarkets = new Map();
+  const latestQuotes = new Map();
   let pendingSnapshot = null;
   let renderTimer = null;
   const flushRender = () => {
-    if (pendingSnapshot) renderQuoteSnapshot(pendingSnapshot, cards);
+    if (pendingSnapshot) {
+      renderQuoteSnapshot(pendingSnapshot, cards, latestMarkets, latestQuotes);
+    }
     pendingSnapshot = null;
     renderTimer = null;
   };
@@ -385,12 +594,12 @@ const setupQuoteStream = () => {
   });
   stream.addEventListener("error", () => {
     flushBeforeConnectionState();
-    quoteCards.forEach((card) => {
-      card.classList.remove(...connectionStatusClasses);
-      card.classList.add("delayed");
-      card.querySelector(".quote-status").textContent = "지연";
+    markMarketsDisconnected(latestMarkets);
+    cards.forEach(({ card, country }, key) => {
+      const quote = { ...(latestQuotes.get(key) || {}), status: "disconnected" };
+      renderQuote(card, quote, latestMarkets.get(country));
     });
-    setConnection("disconnected", "화면 연결 끊김 · 재연결 중");
+    setConnection("disconnected");
   });
   window.addEventListener("pagehide", () => stream.close(), { once: true });
 };

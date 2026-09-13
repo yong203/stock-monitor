@@ -5,6 +5,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+import stock_monitor.runtime as runtime_module
 from stock_monitor.baselines import BaselineRepository
 from stock_monitor.database import initialize_database
 from stock_monitor.live import AccessToken, LiveDependencyError, QuoteKey
@@ -16,13 +17,15 @@ from stock_monitor.market_data import (
     PriceQuote,
     parse_timestamp,
 )
-from stock_monitor.runtime import TossSnapshotProvider, TossTokenProvider
+from stock_monitor.runtime import MarketDataRuntime, TossSnapshotProvider, TossTokenProvider
+from stock_monitor.settings import Credentials
 from stock_monitor.watchlist import Instrument, WatchlistRepository, replace_market_instruments
 
 
 class FakeClient:
     def __init__(self) -> None:
         self.candle_calls = 0
+        self.calendar_calls = 0
 
     async def get_prices(self, symbols: list[str]) -> tuple[PriceQuote, ...]:
         assert symbols == ["AAPL"]
@@ -37,6 +40,7 @@ class FakeClient:
 
     async def get_market_calendar(self, country: str) -> MarketCalendar:
         assert country == "US"
+        self.calendar_calls += 1
         empty = MarketDay(date(2026, 9, 12), None, None, None, None)
         previous = MarketDay(date(2026, 9, 11), None, None, None, None)
         return MarketCalendar("US", empty, previous, empty)  # type: ignore[arg-type]
@@ -90,6 +94,28 @@ def test_snapshot_fetches_and_reuses_previous_close(tmp_path: Path) -> None:
     cached = BaselineRepository(path).get("NASDAQ", "AAPL", "2026-09-11")
     assert cached is not None
     assert cached.previous_close == "240"
+
+
+def test_snapshot_prefers_shared_calendar_cache(tmp_path: Path) -> None:
+    path = tmp_path / "stock.db"
+    prepare_watchlist(path)
+    client = FakeClient()
+    calendar = asyncio.run(client.get_market_calendar("US"))
+    client.calendar_calls = 0
+
+    class Cache:
+        async def get(self, country: str) -> MarketCalendar | None:
+            assert country == "US"
+            return calendar
+
+    provider = TossSnapshotProvider(client, path)  # type: ignore[arg-type]
+    provider.set_calendar_cache(Cache())  # type: ignore[arg-type]
+    key = QuoteKey("us", "AAPL")
+
+    updates = asyncio.run(provider.fetch(AccessToken("token", 1), (key,)))
+
+    assert updates[key].previous_close == Decimal("240")
+    assert client.calendar_calls == 0
 
 
 def test_snapshot_keeps_price_when_baseline_lookup_fails(tmp_path: Path) -> None:
@@ -157,3 +183,98 @@ def test_token_provider_maps_forbidden_without_exposing_response() -> None:
             raise AssertionError("expected LiveDependencyError")
 
     asyncio.run(scenario())
+
+
+def test_runtime_cleans_up_when_session_monitor_start_fails(tmp_path: Path) -> None:
+    path = tmp_path / "stock.db"
+    initialize_database(path)
+    events: list[str] = []
+
+    class Client:
+        async def aclose(self) -> None:
+            events.append("client.stop")
+
+    class Service:
+        async def set_desired(self, keys: tuple[QuoteKey, ...]) -> None:
+            assert keys == ()
+            events.append("quotes.desired")
+
+        async def start(self) -> None:
+            events.append("quotes.start")
+
+        async def stop(self) -> None:
+            events.append("quotes.stop")
+
+    class Monitor:
+        async def start(self) -> None:
+            events.append("sessions.start")
+            raise RuntimeError("calendar unavailable")
+
+        async def stop(self) -> None:
+            events.append("sessions.stop")
+
+    runtime = MarketDataRuntime(  # type: ignore[arg-type]
+        Client(), Service(), Monitor()
+    )
+
+    async def scenario() -> None:
+        try:
+            await runtime.start(path)
+        except RuntimeError as error:
+            assert str(error) == "calendar unavailable"
+        else:
+            raise AssertionError("expected RuntimeError")
+
+    asyncio.run(scenario())
+
+    assert events == [
+        "quotes.desired",
+        "quotes.start",
+        "sessions.start",
+        "quotes.stop",
+        "client.stop",
+    ]
+
+
+def test_build_wires_session_monitor_and_shared_calendar_cache(tmp_path: Path, monkeypatch) -> None:
+    client = FakeClient()
+    captured: dict[str, object] = {}
+
+    class Service:
+        def __init__(self, token_provider, snapshot_provider, connector) -> None:
+            del token_provider, connector
+            captured["service"] = self
+            captured["snapshot"] = snapshot_provider
+
+        async def set_markets(self, statuses) -> None:
+            del statuses
+
+    class Monitor:
+        def __init__(self, selected_client, publish) -> None:
+            captured["monitor"] = self
+            captured["monitor_client"] = selected_client
+            captured["publish"] = publish
+
+        async def get(self, country):
+            del country
+            return None
+
+    monkeypatch.setattr(
+        runtime_module,
+        "load_credentials",
+        lambda path: Credentials("test-id", "test-secret"),
+    )
+    monkeypatch.setattr(runtime_module, "credentials_path", lambda: tmp_path / "credentials")
+    monkeypatch.setattr(runtime_module, "MarketDataClient", lambda credentials: client)
+    monkeypatch.setattr(runtime_module, "LiveQuoteService", Service)
+    monkeypatch.setattr(runtime_module, "MarketSessionMonitor", Monitor)
+
+    built = runtime_module.build_market_data_runtime(tmp_path / "stock.db")
+
+    assert built is not None
+    assert built.service is captured["service"]
+    assert captured["monitor_client"] is client
+    snapshot = captured["snapshot"]
+    assert isinstance(snapshot, TossSnapshotProvider)
+    assert snapshot._calendar_cache is captured["monitor"]
+    assert captured["publish"] == built.service.set_markets

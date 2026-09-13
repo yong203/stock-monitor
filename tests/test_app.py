@@ -10,6 +10,9 @@ from stock_monitor.watchlist import Instrument, replace_market_instruments
 
 
 class FakeLiveService:
+    def __init__(self, calendar_status: str = "ok") -> None:
+        self.calendar_status = calendar_status
+
     async def health(self) -> dict[str, object]:
         return {
             "status": "connected",
@@ -19,12 +22,14 @@ class FakeLiveService:
             "reconnect_attempt": 0,
             "last_message_age_seconds": 0,
             "error": None,
+            "calendar_status": self.calendar_status,
+            "calendar_errors": {},
         }
 
 
 class FakeRuntime:
-    def __init__(self) -> None:
-        self.service = FakeLiveService()
+    def __init__(self, calendar_status: str = "ok") -> None:
+        self.service = FakeLiveService(calendar_status)
         self.started = 0
         self.stopped = 0
         self.refreshed = 0
@@ -73,14 +78,27 @@ def test_dashboard_and_watchlist_render_empty_state(tmp_path: Path) -> None:
         dashboard = client.get("/")
         watchlist = client.get("/watchlist")
         css = client.get("/static/app.css")
+        javascript = client.get("/static/app.js")
 
     assert dashboard.status_code == 200
     assert "관심종목이 비어 있습니다" in dashboard.text
     assert 'lang="ko"' in dashboard.text
+    assert dashboard.text.count("data-market-status") == 2
+    assert 'data-country="KR"' in dashboard.text
+    assert 'data-country="US"' in dashboard.text
+    assert 'id="market-state-announcement"' in dashboard.text
     assert watchlist.status_code == 200
     assert "종목 검색" in watchlist.text
     assert css.status_code == 200
     assert "--bg: #0b0f14" in css.text
+    assert javascript.status_code == 200
+    assert 'new EventSource("/api/quotes/stream")' in javascript.text
+    assert '"시세 서버 연결됨"' in javascript.text
+    assert "marketAllowsLive" in javascript.text
+    assert "markMarketsDisconnected" in javascript.text
+    assert 'market.error === "ip_forbidden"' in javascript.text
+    assert 'label: "허용 IP 확인 필요"' in javascript.text
+    assert "if (!quoteCards.length) return" not in javascript.text
 
 
 def test_search_add_list_duplicate_and_remove(tmp_path: Path) -> None:
@@ -198,3 +216,21 @@ def test_market_data_health_and_stream_require_configuration(tmp_path: Path) -> 
     assert health.json()["error"] == "toss_not_configured"
     assert stream.status_code == 503
     assert stream.json()["detail"]["code"] == "market_data_not_configured"
+
+
+def test_market_data_health_is_degraded_when_calendar_is_stale(tmp_path: Path) -> None:
+    path = tmp_path / "stock.db"
+    prepare_catalog(path)
+    runtime = FakeRuntime("stale")
+
+    with TestClient(
+        create_app(
+            path,
+            enable_live=True,
+            runtime_builder=lambda _: runtime,  # type: ignore[arg-type,return-value]
+        )
+    ) as client:
+        health = client.get("/health/market-data")
+
+    assert health.status_code == 503
+    assert health.json()["calendar_status"] == "stale"
