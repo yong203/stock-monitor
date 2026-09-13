@@ -1,0 +1,2 @@
+{% from "_report_card.html" import render_report %}
+{% for report in reports %}{{ render_report(report) }}{% endfor %}

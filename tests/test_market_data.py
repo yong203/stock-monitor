@@ -14,7 +14,11 @@ from stock_monitor.market_data import (
     MarketDataError,
     TokenManager,
     parse_decimal,
+    parse_exchange_rate,
     parse_market_calendar,
+    parse_stock_details,
+    parse_stock_trend,
+    parse_stock_warnings,
     parse_timestamp,
     select_previous_business_day_candle,
 )
@@ -243,6 +247,187 @@ def test_daily_candle_wire_contract_and_previous_day_selection() -> None:
         assert baseline.close_price == Decimal("240.00")
 
     run(scenario())
+
+
+def test_parses_report_stock_context_from_official_shapes() -> None:
+    details = parse_stock_details(
+        {
+            "result": [
+                {
+                    "symbol": "005930",
+                    "name": "삼성전자",
+                    "englishName": "SamsungElec",
+                    "isinCode": "KR7005930003",
+                    "market": "KOSPI",
+                    "securityType": "STOCK",
+                    "isCommonShare": True,
+                    "status": "ACTIVE",
+                    "currency": "KRW",
+                    "sharesOutstanding": "5919637922",
+                    "leverageFactor": None,
+                    "listDate": "1975-06-11",
+                    "delistDate": None,
+                    "koreanMarketDetail": {
+                        "liquidationTrading": False,
+                        "nxtSupported": True,
+                        "krxTradingSuspended": False,
+                        "nxtTradingSuspended": None,
+                    },
+                }
+            ]
+        },
+        "005930",
+    )
+    warnings = parse_stock_warnings(
+        {
+            "result": [
+                {
+                    "warningType": "OVERHEATED",
+                    "exchange": "KRX",
+                    "startDate": "2026-03-20",
+                    "endDate": None,
+                }
+            ]
+        }
+    )
+    trends = parse_stock_trend(
+        {
+            "result": {
+                "nextUntil": None,
+                "records": [
+                    {
+                        "date": "2026-07-17",
+                        "updatedAt": "2026-07-17T14:35:08+09:00",
+                        "individual": None,
+                        "foreigner": {
+                            "buyVolume": "2105300",
+                            "sellVolume": "1985400",
+                            "netBuyVolume": "119900",
+                        },
+                        "institution": None,
+                        "otherCorporation": None,
+                        "foreignerHolding": None,
+                        "cfd": None,
+                    }
+                ],
+            }
+        },
+        "investor-trading",
+    )
+
+    assert details.shares_outstanding == Decimal("5919637922")
+    assert details.isin_code == "KR7005930003"
+    assert details.list_date == date(1975, 6, 11)
+    assert details.nxt_supported is True
+    assert warnings[0]["end_date"] is None
+    assert trends[0]["foreigner"]["net_buy_volume"] == "119900"
+
+
+def test_parses_exchange_rate_with_direction_and_validity_window() -> None:
+    result = parse_exchange_rate(
+        {
+            "result": {
+                "baseCurrency": "USD",
+                "quoteCurrency": "KRW",
+                "rate": "1380.5",
+                "midRate": "1375",
+                "basisPoint": "40",
+                "rateChangeType": "UP",
+                "validFrom": "2026-03-25T09:30:00+09:00",
+                "validUntil": "2026-03-25T09:31:00+09:00",
+            }
+        }
+    )
+
+    assert result["rate"] == "1380.5"
+    assert result["rate_change_type"] == "UP"
+    assert result["valid_until"] == "2026-03-25T09:31:00+09:00"
+
+
+def test_report_context_wire_contracts_use_documented_paths_and_params() -> None:
+    requested: list[tuple[str, dict[str, str]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return httpx.Response(200, json=TOKEN_BODY)
+        requested.append((request.url.path, dict(request.url.params)))
+        if request.url.path == "/api/v1/stocks":
+            return httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "symbol": "005930",
+                            "name": "삼성전자",
+                            "englishName": "SamsungElec",
+                            "isinCode": "KR7005930003",
+                            "market": "KOSPI",
+                            "securityType": "STOCK",
+                            "isCommonShare": True,
+                            "status": "ACTIVE",
+                            "currency": "KRW",
+                            "sharesOutstanding": "5919637922",
+                            "leverageFactor": None,
+                            "listDate": "1975-06-11",
+                            "delistDate": None,
+                            "koreanMarketDetail": None,
+                        }
+                    ]
+                },
+            )
+        if request.url.path.endswith("/warnings"):
+            return httpx.Response(200, json={"result": []})
+        if request.url.path.endswith("/short-selling"):
+            return httpx.Response(
+                200,
+                json={
+                    "result": {
+                        "records": [
+                            {
+                                "date": "2026-07-16",
+                                "updatedAt": "2026-07-17T02:35:00+09:00",
+                                "shortSellingVolume": "100",
+                                "shortSellingAmount": "7000000",
+                                "shortSellingVolumeRate": "0.01",
+                                "shortSellingAmountRate": "0.02",
+                            }
+                        ]
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "result": {
+                    "baseCurrency": "USD",
+                    "quoteCurrency": "KRW",
+                    "rate": "1380.5",
+                    "midRate": "1375",
+                    "basisPoint": "40",
+                    "rateChangeType": "UP",
+                    "validFrom": "2026-03-25T09:30:00+09:00",
+                    "validUntil": "2026-03-25T09:31:00+09:00",
+                }
+            },
+        )
+
+    async def scenario() -> None:
+        async with MarketDataClient(CREDENTIALS, transport=httpx.MockTransport(handler)) as client:
+            await client.get_stock_details("005930")
+            await client.get_stock_warnings("005930")
+            await client.get_stock_trend("005930", "short-selling", count=20)
+            await client.get_usd_krw_exchange_rate()
+
+    run(scenario())
+    assert requested == [
+        ("/api/v1/stocks", {"symbols": "005930"}),
+        ("/api/v1/stocks/005930/warnings", {}),
+        ("/api/v1/stocks/005930/short-selling", {"count": "20"}),
+        (
+            "/api/v1/exchange-rate",
+            {"baseCurrency": "USD", "quoteCurrency": "KRW"},
+        ),
+    ]
 
 
 def test_kr_and_us_market_calendar_wire_and_nullable_sessions() -> None:

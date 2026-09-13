@@ -604,7 +604,187 @@ const setupQuoteStream = () => {
   window.addEventListener("pagehide", () => stream.close(), { once: true });
 };
 
+const setupKstTimes = () => {
+  document.querySelectorAll("[data-kst-time]").forEach((element) => {
+    const formatted = formatKst(element.dateTime || element.textContent, false);
+    if (formatted) element.textContent = formatted.label;
+  });
+};
+
+const setupReportTimeline = () => {
+  const timeline = document.querySelector(".report-timeline");
+  if (!timeline) return;
+
+  let activeTrigger = null;
+  let ownsHistoryEntry = false;
+  let focusAfterHistory = null;
+
+  const bodyFor = (trigger) => document.getElementById(trigger.getAttribute("aria-controls"));
+  const cardFor = (trigger) => trigger.closest(".report-card");
+  const setExpanded = (trigger, expanded) => {
+    const body = bodyFor(trigger);
+    if (!body) return;
+    trigger.setAttribute("aria-expanded", String(expanded));
+    trigger.querySelector("[data-expand-label]").textContent = expanded
+      ? "상세 분석 접기"
+      : "상세 분석 펼치기";
+    body.hidden = !expanded;
+    cardFor(trigger).classList.toggle("expanded", expanded);
+  };
+  const closeActive = ({ restoreFocus = false } = {}) => {
+    if (!activeTrigger) return;
+    const closing = activeTrigger;
+    setExpanded(closing, false);
+    activeTrigger = null;
+    if (restoreFocus) closing.focus({ preventScroll: true });
+  };
+  const open = (trigger) => {
+    if (activeTrigger && activeTrigger !== trigger) setExpanded(activeTrigger, false);
+    setExpanded(trigger, true);
+    activeTrigger = trigger;
+  };
+  const triggerForHash = () => {
+    if (!window.location.hash) return null;
+    const target = document.getElementById(decodeURIComponent(window.location.hash.slice(1)));
+    return target?.closest(".report-card")?.querySelector("[data-report-toggle]") || null;
+  };
+  const baseUrl = `${window.location.pathname}${window.location.search}`;
+
+  timeline.addEventListener("click", (event) => {
+    const link = event.target.closest(".source-references a");
+    if (link) {
+      const target = document.getElementById(decodeURIComponent(link.hash.slice(1)));
+      if (!target) return;
+      event.preventDefault();
+      if (target.hidden) {
+        const sources = target.closest(".report-sources");
+        sources.querySelectorAll("[data-source-extra]").forEach((source) => {
+          source.hidden = false;
+        });
+        const more = sources.querySelector("[data-source-more]");
+        if (more) {
+          more.setAttribute("aria-expanded", "true");
+          more.textContent = "출처 접기";
+        }
+      }
+      window.history.replaceState(window.history.state, "", link.hash);
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    const more = event.target.closest("[data-source-more]");
+    if (more) {
+      const expanded = more.getAttribute("aria-expanded") === "true";
+      const sources = more.closest(".report-sources");
+      sources.querySelectorAll("[data-source-extra]").forEach((source) => {
+        source.hidden = expanded;
+      });
+      more.setAttribute("aria-expanded", String(!expanded));
+      more.textContent = expanded
+        ? `출처 ${sources.querySelectorAll("[data-source-extra]").length}개 더 보기`
+        : "출처 접기";
+      return;
+    }
+
+    const close = event.target.closest("[data-report-close]");
+    if (close) {
+      const trigger = close.closest(".report-card")?.querySelector("[data-report-toggle]");
+      if (!trigger) return;
+      if (ownsHistoryEntry && window.history.state?.inlineReport) {
+        focusAfterHistory = trigger;
+        window.history.back();
+      } else {
+        closeActive({ restoreFocus: true });
+        window.history.replaceState(window.history.state, "", baseUrl);
+      }
+      return;
+    }
+
+    const trigger = event.target.closest("[data-report-toggle]");
+    if (!trigger) return;
+    if (activeTrigger === trigger) {
+      if (ownsHistoryEntry && window.history.state?.inlineReport) {
+        focusAfterHistory = trigger;
+        window.history.back();
+      } else {
+        closeActive({ restoreFocus: true });
+        window.history.replaceState(window.history.state, "", baseUrl);
+      }
+      return;
+    }
+
+    const replacing = Boolean(activeTrigger);
+    open(trigger);
+    const nextUrl = `#${cardFor(trigger).id}`;
+    const nextState = { ...(window.history.state || {}), inlineReport: true };
+    if (replacing || ownsHistoryEntry) {
+      window.history.replaceState(nextState, "", nextUrl);
+    } else {
+      window.history.pushState(nextState, "", nextUrl);
+      ownsHistoryEntry = true;
+    }
+  });
+
+  const loadMore = document.querySelector("[data-report-more]");
+  if (loadMore) {
+    loadMore.addEventListener("click", async () => {
+      const status = loadMore.parentElement.querySelector(".report-more-status");
+      loadMore.disabled = true;
+      status.textContent = "과거 보고서를 불러오는 중…";
+      try {
+        const market = encodeURIComponent(loadMore.dataset.market);
+        const symbol = encodeURIComponent(loadMore.dataset.symbol);
+        const cursor = encodeURIComponent(loadMore.dataset.nextCursor);
+        const response = await fetch(
+          `/api/instruments/${market}/${symbol}/reports?cursor=${cursor}`,
+        );
+        if (!response.ok) throw new Error("request_failed");
+        const template = document.createElement("template");
+        template.innerHTML = (await response.text()).trim();
+        const count = template.content.querySelectorAll(".report-card").length;
+        timeline.append(template.content);
+        setupKstTimes();
+        const nextCursor = response.headers.get("X-Next-Cursor");
+        if (nextCursor) {
+          loadMore.dataset.nextCursor = nextCursor;
+          loadMore.disabled = false;
+          status.textContent = `${count}개를 불러왔습니다.`;
+        } else {
+          loadMore.remove();
+          status.textContent = "모든 보고서를 불러왔습니다.";
+        }
+      } catch (_) {
+        loadMore.disabled = false;
+        status.textContent = "과거 보고서를 불러오지 못했습니다. 다시 시도해 주세요.";
+      }
+    });
+  }
+
+  const syncFromHistory = () => {
+    const trigger = triggerForHash();
+    if (trigger) open(trigger);
+    else closeActive();
+    ownsHistoryEntry = Boolean(window.history.state?.inlineReport);
+    if (focusAfterHistory) {
+      focusAfterHistory.focus({ preventScroll: true });
+      focusAfterHistory = null;
+    }
+  };
+  window.addEventListener("popstate", syncFromHistory);
+
+  const initialTrigger = triggerForHash();
+  if (initialTrigger) {
+    open(initialTrigger);
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById(decodeURIComponent(window.location.hash.slice(1)));
+      target?.scrollIntoView({ block: "start" });
+    });
+  }
+};
+
 setupFilters();
 setupSearch();
 setupWatchlist();
 setupQuoteStream();
+setupKstTimes();
+setupReportTimeline();

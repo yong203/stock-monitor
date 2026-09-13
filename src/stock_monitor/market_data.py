@@ -83,6 +83,27 @@ class DailyCandle:
 
 
 @dataclass(frozen=True)
+class StockDetails:
+    symbol: str
+    name: str
+    english_name: str | None
+    isin_code: str | None
+    market: str
+    security_type: str
+    is_common_share: bool
+    status: str
+    currency: str
+    shares_outstanding: Decimal
+    leverage_factor: Decimal | None
+    list_date: date | None
+    delist_date: date | None
+    liquidation_trading: bool | None
+    nxt_supported: bool | None
+    krx_trading_suspended: bool | None
+    nxt_trading_suspended: bool | None
+
+
+@dataclass(frozen=True)
 class MarketSession:
     start_time: datetime
     end_time: datetime
@@ -217,6 +238,49 @@ class MarketDataClient:
             params={"symbol": normalized, "interval": "1d", "count": count},
         )
         return parse_daily_candles(body)
+
+    async def get_stock_details(self, symbol: str) -> StockDetails:
+        normalized = _validate_symbols([symbol])[0]
+        body = await self._authorized_get(
+            "/api/v1/stocks",
+            params={"symbols": normalized},
+        )
+        return parse_stock_details(body, normalized)
+
+    async def get_stock_warnings(self, symbol: str) -> tuple[dict[str, object], ...]:
+        normalized = _validate_symbols([symbol])[0]
+        body = await self._authorized_get(
+            f"/api/v1/stocks/{normalized}/warnings",
+            params={},
+        )
+        return parse_stock_warnings(body)
+
+    async def get_stock_trend(
+        self, symbol: str, trend: str, *, count: int = 20
+    ) -> tuple[dict[str, object], ...]:
+        normalized = _validate_symbols([symbol])[0]
+        if trend not in {
+            "investor-trading",
+            "program-trades",
+            "short-selling",
+            "securities-lending",
+            "credit-trades",
+        }:
+            raise ValueError("unsupported_stock_trend")
+        if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 100:
+            raise ValueError("count_must_be_between_1_and_100")
+        body = await self._authorized_get(
+            f"/api/v1/stocks/{normalized}/{trend}",
+            params={"count": count},
+        )
+        return parse_stock_trend(body, trend)
+
+    async def get_usd_krw_exchange_rate(self) -> dict[str, str]:
+        body = await self._authorized_get(
+            "/api/v1/exchange-rate",
+            params={"baseCurrency": "USD", "quoteCurrency": "KRW"},
+        )
+        return parse_exchange_rate(body)
 
     async def get_market_calendar(
         self, country: Country, *, on_date: date | None = None
@@ -359,6 +423,87 @@ def parse_daily_candles(body: Any) -> tuple[DailyCandle, ...]:
     return tuple(candles)
 
 
+def parse_stock_details(body: Any, expected_symbol: str) -> StockDetails:
+    result = _result_list(body)
+    matches = [_object(raw) for raw in result if _object(raw).get("symbol") == expected_symbol]
+    if len(matches) != 1:
+        raise MarketDataError("stock_details_not_found")
+    item = matches[0]
+    market_detail = item.get("koreanMarketDetail")
+    if market_detail is None:
+        detail: dict[str, Any] = {}
+    else:
+        detail = _object(market_detail)
+    leverage = item.get("leverageFactor")
+    listed = item.get("listDate")
+    delisted = item.get("delistDate")
+    return StockDetails(
+        symbol=_symbol(item.get("symbol")),
+        name=_bounded_text(item.get("name"), 200),
+        english_name=_optional_text(item.get("englishName"), 200),
+        isin_code=_optional_text(item.get("isinCode"), 32),
+        market=_bounded_text(item.get("market"), 16),
+        security_type=_bounded_text(item.get("securityType"), 32),
+        is_common_share=_required_bool(item.get("isCommonShare")),
+        status=_bounded_text(item.get("status"), 32),
+        currency=_currency(item.get("currency")),
+        shares_outstanding=parse_decimal(item.get("sharesOutstanding")),
+        leverage_factor=None if leverage is None else parse_decimal(leverage),
+        list_date=None if listed is None else _parse_date(listed),
+        delist_date=None if delisted is None else _parse_date(delisted),
+        liquidation_trading=_optional_bool(detail.get("liquidationTrading")),
+        nxt_supported=_optional_bool(detail.get("nxtSupported")),
+        krx_trading_suspended=_optional_bool(detail.get("krxTradingSuspended")),
+        nxt_trading_suspended=_optional_bool(detail.get("nxtTradingSuspended")),
+    )
+
+
+def parse_stock_warnings(body: Any) -> tuple[dict[str, object], ...]:
+    warnings = []
+    for raw in _result_list(body):
+        item = _object(raw)
+        warnings.append(
+            {
+                "warning_type": _bounded_text(item.get("warningType"), 64),
+                "exchange": _optional_text(item.get("exchange"), 16),
+                "start_date": _optional_date(item.get("startDate")),
+                "end_date": _optional_date(item.get("endDate")),
+            }
+        )
+    return tuple(warnings)
+
+
+def parse_stock_trend(body: Any, trend: str) -> tuple[dict[str, object], ...]:
+    result = _object(_object(body).get("result"))
+    records = result.get("records")
+    if not isinstance(records, list) or len(records) > 100:
+        raise MarketDataError("invalid_market_data_response")
+    parser = {
+        "investor-trading": _investor_record,
+        "program-trades": _program_record,
+        "short-selling": _short_record,
+        "securities-lending": _lending_record,
+        "credit-trades": _credit_record,
+    }.get(trend)
+    if parser is None:
+        raise ValueError("unsupported_stock_trend")
+    return tuple(parser(_object(raw)) for raw in records)
+
+
+def parse_exchange_rate(body: Any) -> dict[str, str]:
+    result = _object(_object(body).get("result"))
+    return {
+        "base_currency": _currency(result.get("baseCurrency")),
+        "quote_currency": _currency(result.get("quoteCurrency")),
+        "rate": str(parse_decimal(result.get("rate"))),
+        "mid_rate": str(parse_decimal(result.get("midRate"))),
+        "basis_point": str(parse_decimal(result.get("basisPoint"))),
+        "rate_change_type": _bounded_text(result.get("rateChangeType"), 16),
+        "valid_from": parse_timestamp(result.get("validFrom")).isoformat(),
+        "valid_until": parse_timestamp(result.get("validUntil")).isoformat(),
+    }
+
+
 def parse_market_calendar(body: Any, country: Country) -> MarketCalendar:
     if country not in ("KR", "US"):
         raise ValueError("country_must_be_kr_or_us")
@@ -442,6 +587,143 @@ def _currency(value: Any) -> str:
     if not isinstance(value, str) or not value or len(value) > 16:
         raise MarketDataError("invalid_currency")
     return value
+
+
+def _bounded_text(value: Any, maximum: int) -> str:
+    if not isinstance(value, str) or not value or len(value) > maximum:
+        raise MarketDataError("invalid_market_data_response")
+    return value
+
+
+def _optional_text(value: Any, maximum: int) -> str | None:
+    if value is None:
+        return None
+    return _bounded_text(value, maximum)
+
+
+def _optional_bool(value: Any) -> bool | None:
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        raise MarketDataError("invalid_market_data_response")
+    return value
+
+
+def _required_bool(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise MarketDataError("invalid_market_data_response")
+    return value
+
+
+def _optional_date(value: Any) -> str | None:
+    return None if value is None else _parse_date(value).isoformat()
+
+
+def _optional_timestamp(value: Any) -> str | None:
+    return None if value is None else parse_timestamp(value).isoformat()
+
+
+def _decimal_text(value: Any) -> str:
+    return str(parse_decimal(value))
+
+
+def _optional_decimal_text(value: Any) -> str | None:
+    return None if value is None else _decimal_text(value)
+
+
+def _volume(value: Any) -> dict[str, str] | None:
+    if value is None:
+        return None
+    item = _object(value)
+    return {
+        "buy_volume": _decimal_text(item.get("buyVolume")),
+        "sell_volume": _decimal_text(item.get("sellVolume")),
+        "net_buy_volume": _decimal_text(item.get("netBuyVolume")),
+    }
+
+
+def _investor_record(item: dict[str, Any]) -> dict[str, object]:
+    foreigner_holding_value = item.get("foreignerHolding")
+    foreigner_holding = None
+    if foreigner_holding_value is not None:
+        holding = _object(foreigner_holding_value)
+        foreigner_holding = {
+            "holding_quantity": _decimal_text(holding.get("holdingQuantity")),
+            "limit_quantity": _decimal_text(holding.get("limitQuantity")),
+            "holding_rate": _decimal_text(holding.get("holdingRate")),
+        }
+    cfd_value = item.get("cfd")
+    cfd = None
+    if cfd_value is not None:
+        raw_cfd = _object(cfd_value)
+        cfd = {
+            "buy_balance_quantity": _decimal_text(raw_cfd.get("buyBalanceQuantity")),
+            "buy_balance_rate": _decimal_text(raw_cfd.get("buyBalanceRate")),
+            "sell_balance_quantity": _decimal_text(raw_cfd.get("sellBalanceQuantity")),
+            "sell_balance_rate": _decimal_text(raw_cfd.get("sellBalanceRate")),
+        }
+    return {
+        "date": _parse_date(item.get("date")).isoformat(),
+        "updated_at": parse_timestamp(item.get("updatedAt")).isoformat(),
+        "individual": _volume(item.get("individual")),
+        "foreigner": _volume(item.get("foreigner")),
+        "institution": _volume(item.get("institution")),
+        "other_corporation": _volume(item.get("otherCorporation")),
+        "foreigner_holding": foreigner_holding,
+        "cfd": cfd,
+    }
+
+
+def _program_record(item: dict[str, Any]) -> dict[str, object]:
+    return {
+        "date": _parse_date(item.get("date")).isoformat(),
+        "arbitrage": _volume(item.get("arbitrage")),
+        "non_arbitrage": _volume(item.get("nonArbitrage")),
+    }
+
+
+def _short_record(item: dict[str, Any]) -> dict[str, object]:
+    return {
+        "date": _parse_date(item.get("date")).isoformat(),
+        "updated_at": parse_timestamp(item.get("updatedAt")).isoformat(),
+        "short_selling_volume": _decimal_text(item.get("shortSellingVolume")),
+        "short_selling_amount": _decimal_text(item.get("shortSellingAmount")),
+        "short_selling_volume_rate": _optional_decimal_text(item.get("shortSellingVolumeRate")),
+        "short_selling_amount_rate": _optional_decimal_text(item.get("shortSellingAmountRate")),
+    }
+
+
+def _lending_record(item: dict[str, Any]) -> dict[str, object]:
+    return {
+        "date": _parse_date(item.get("date")).isoformat(),
+        "updated_at": parse_timestamp(item.get("updatedAt")).isoformat(),
+        "execution_quantity": _decimal_text(item.get("executionQuantity")),
+        "repayment_quantity": _decimal_text(item.get("repaymentQuantity")),
+        "balance_quantity": _decimal_text(item.get("balanceQuantity")),
+        "balance_amount": _decimal_text(item.get("balanceAmount")),
+    }
+
+
+def _credit_detail(value: Any) -> dict[str, str] | None:
+    if value is None:
+        return None
+    item = _object(value)
+    return {
+        "new_quantity": _decimal_text(item.get("newQuantity")),
+        "return_quantity": _decimal_text(item.get("returnQuantity")),
+        "balance_quantity": _decimal_text(item.get("balanceQuantity")),
+        "balance_rate": _decimal_text(item.get("balanceRate")),
+        "trading_rate": _decimal_text(item.get("tradingRate")),
+    }
+
+
+def _credit_record(item: dict[str, Any]) -> dict[str, object]:
+    return {
+        "date": _parse_date(item.get("date")).isoformat(),
+        "updated_at": parse_timestamp(item.get("updatedAt")).isoformat(),
+        "margin_loan": _credit_detail(item.get("marginLoan")),
+        "stock_loan": _credit_detail(item.get("stockLoan")),
+    }
 
 
 def _object(value: Any) -> dict[str, Any]:

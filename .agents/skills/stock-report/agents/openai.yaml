@@ -1,0 +1,6 @@
+interface:
+  display_name: "Stock Report"
+  short_description: "근거 기반 종목 분석 보고서를 생성하고 저장합니다"
+  default_prompt: "Use $stock-report to analyze and save a report for the specified watched instrument."
+policy:
+  allow_implicit_invocation: false

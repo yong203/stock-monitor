@@ -48,27 +48,33 @@
           data-market="{{ item.market }}"
           data-symbol="{{ item.symbol }}"
         >
-          <article class="stock-card pending" data-quote-card>
-            <header>
-              <div>
-                <h2>{{ item.name }}</h2>
-                <p>{{ item.symbol }} · {{ item.market }}</p>
+          <a
+            class="stock-card-link"
+            href="/instruments/{{ item.market }}/{{ item.symbol }}"
+            aria-label="{{ item.name }} 분석 보고서 보기"
+          >
+            <article class="stock-card pending" data-quote-card>
+              <header>
+                <div>
+                  <h2>{{ item.name }}</h2>
+                  <p>{{ item.symbol }} · {{ item.market }}</p>
+                </div>
+                {% if item.is_etf %}<span class="badge">ETF</span>{% endif %}
+              </header>
+              <div class="price unavailable">
+                <span class="price-value">—</span>
+                <small class="price-currency">시세 준비 중</small>
               </div>
-              {% if item.is_etf %}<span class="badge">ETF</span>{% endif %}
-            </header>
-            <div class="price unavailable">
-              <span class="price-value">—</span>
-              <small class="price-currency">시세 준비 중</small>
-            </div>
-            <div class="change neutral">
-              <span class="change-symbol" aria-hidden="true">—</span>
-              <span class="change-text">전일 대비 준비 중</span>
-            </div>
-            <footer>
-              <span class="quote-status">시장 확인 중 · 시세 대기</span>
-              <time class="quote-time">업데이트 대기</time>
-            </footer>
-          </article>
+              <div class="change neutral">
+                <span class="change-symbol" aria-hidden="true">—</span>
+                <span class="change-text">전일 대비 준비 중</span>
+              </div>
+              <footer>
+                <span class="quote-status">시장 확인 중 · 시세 대기</span>
+                <time class="quote-time">업데이트 대기</time>
+              </footer>
+            </article>
+          </a>
         </li>
       {% endfor %}
     </ul>
