@@ -24,8 +24,23 @@ def test_load_credentials_from_safe_file(tmp_path: Path) -> None:
 
     assert credentials.client_id == "test-id"
     assert credentials.client_secret == "test-secret"
+    assert credentials.report_writer_token is None
     assert "test-id" not in repr(credentials)
     assert "test-secret" not in repr(credentials)
+
+
+def test_loads_optional_report_writer_token_without_exposing_it(tmp_path: Path) -> None:
+    path = tmp_path / "credentials.toml"
+    token = "r" * 32
+    write_credentials(
+        path,
+        f'client_id = "test-id"\nclient_secret = "test-secret"\nreport_writer_token = "{token}"\n',
+    )
+
+    credentials = load_credentials(path)
+
+    assert credentials.report_writer_token == token
+    assert token not in repr(credentials)
 
 
 @pytest.mark.parametrize(
@@ -33,6 +48,15 @@ def test_load_credentials_from_safe_file(tmp_path: Path) -> None:
     [
         ('client_id = "test-id"', "client_secret_missing"),
         ('client_secret = "test-secret"', "client_id_missing"),
+        (
+            'client_id = "test-id"\nclient_secret = "test-secret"\nreport_writer_token = "short"',
+            "report_writer_token_invalid",
+        ),
+        (
+            'client_id = "test-id"\nclient_secret = "test-secret"\n'
+            'report_writer_token = "                                "',
+            "report_writer_token_invalid",
+        ),
         ("client_id = [", "credentials_invalid_toml"),
     ],
 )

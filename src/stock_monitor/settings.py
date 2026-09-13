@@ -28,6 +28,7 @@ class UnsafeCredentialsError(CredentialsError):
 class Credentials:
     client_id: str = field(repr=False)
     client_secret: str = field(repr=False)
+    report_writer_token: str | None = field(default=None, repr=False)
 
 
 def credentials_path() -> Path:
@@ -71,11 +72,22 @@ def load_credentials(path: Path) -> Credentials:
 
     client_id = raw.get("client_id")
     client_secret = raw.get("client_secret")
+    report_writer_token = raw.get("report_writer_token")
     if not isinstance(client_id, str) or not client_id.strip():
         raise CredentialsError("client_id_missing")
     if not isinstance(client_secret, str) or not client_secret.strip():
         raise CredentialsError("client_secret_missing")
-    return Credentials(client_id=client_id, client_secret=client_secret)
+    if report_writer_token is not None and (
+        not isinstance(report_writer_token, str)
+        or len(report_writer_token) < 32
+        or report_writer_token != report_writer_token.strip()
+    ):
+        raise CredentialsError("report_writer_token_invalid")
+    return Credentials(
+        client_id=client_id,
+        client_secret=client_secret,
+        report_writer_token=report_writer_token,
+    )
 
 
 def _validate_file(file_stat: os.stat_result) -> None:

@@ -27,7 +27,14 @@ def test_initializes_wal_database_idempotently(tmp_path: Path) -> None:
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
-    assert {"instruments", "instrument_syncs", "watchlist_items"} <= tables
+    assert {
+        "instruments",
+        "instrument_syncs",
+        "watchlist_items",
+        "quote_baselines",
+        "investment_reports",
+        "report_sources",
+    } <= tables
 
 
 def test_rejects_newer_database(tmp_path: Path) -> None:
@@ -63,6 +70,45 @@ def test_migrates_v1_to_v2_without_losing_watchlist(monkeypatch, tmp_path: Path)
         assert connection.execute("SELECT symbol FROM watchlist_items").fetchone()[0] == "AAPL"
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='quote_baselines'"
+        ).fetchone()
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='investment_reports'"
+        ).fetchone()
+
+
+def test_migrates_v2_to_v3_without_losing_existing_data(monkeypatch, tmp_path: Path) -> None:
+    path = tmp_path / "stock.db"
+    monkeypatch.setattr(database, "SCHEMA_VERSION", 2)
+    initialize_database(path)
+    with connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO instruments (
+                market, symbol, name, security_type, is_common_share, country
+            ) VALUES ('NASDAQ', 'AAPL', '애플', 'FOREIGN_STOCK', 1, 'US')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO quote_baselines (
+                market, symbol, trading_date, previous_close, currency, updated_at
+            ) VALUES ('NASDAQ', 'AAPL', '2026-09-12', '220.5', 'USD', '2026-09-13T00:00:00Z')
+            """
+        )
+
+    monkeypatch.setattr(database, "SCHEMA_VERSION", SCHEMA_VERSION)
+    initialize_database(path)
+
+    with connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        assert (
+            connection.execute(
+                "SELECT previous_close FROM quote_baselines WHERE symbol = 'AAPL'"
+            ).fetchone()[0]
+            == "220.5"
+        )
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='report_sources'"
         ).fetchone()
 
 
