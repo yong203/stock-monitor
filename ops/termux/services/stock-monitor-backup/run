@@ -1,0 +1,31 @@
+#!/data/data/com.termux/files/usr/bin/sh
+
+set -eu
+
+cd /data/data/com.termux/files/home/stock-monitor
+export PYTHONUNBUFFERED=1
+
+backup_pid=
+stop_backup() {
+  if [ -n "$backup_pid" ]; then
+    kill -TERM "$backup_pid" 2>/dev/null || :
+    wait "$backup_pid" 2>/dev/null || :
+  fi
+  exit 0
+}
+trap stop_backup TERM INT
+
+.venv/bin/stock-monitor \
+  --database-file /data/data/com.termux/files/home/.local/share/stock-monitor/stock.db \
+  --backup-directory /data/data/com.termux/files/home/.local/share/stock-monitor/backups \
+  --backup-retention 7 \
+  backup-db &
+backup_pid=$!
+
+delay=86400
+if ! wait "$backup_pid"; then
+  delay=300
+fi
+backup_pid=
+
+exec sleep "$delay"

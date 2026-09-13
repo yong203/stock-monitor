@@ -87,4 +87,53 @@ http://<스마트폰의 고정 LAN IP>:8000/health/market-data
 
 실시간 서비스는 토큰과 Toss WebSocket 연결을 프로세스 안에서 하나만 유지하므로 Uvicorn worker를 늘리지 않는다. 네트워크가 끊기면 마지막 가격을 유지한 채 자동 재연결한다. `/health/market-data`는 비밀값 없이 시세 연결과 시장 캘린더의 `calendar_status`를 함께 보여준다.
 
-자동 시작과 상시 서비스 구성은 실시간 MVP를 배포하는 Phase 1에서 진행한다.
+## 상시 서비스 설치
+
+`termux-services`의 runit으로 웹 서버와 일일 백업을 각각 감독한다. 처음 전환할 때는 서비스 파일부터 비활성 상태로 설치한다.
+
+```sh
+cd "$HOME/stock-monitor"
+./scripts/install-termux-services
+```
+
+기존에 수동 실행한 Uvicorn이 있으면 `ps`에서 명령행과 PID를 확인한 뒤 그 PID만 종료한다. 광범위한 `pkill`은 사용하지 않는다.
+
+```sh
+ps -A -o pid,ppid,args | awk '$3 ~ /(^|\/)uvicorn$/ {print}'
+kill <확인한-PID>
+./scripts/install-termux-services --enable
+```
+
+이후 같은 설치 스크립트를 다시 실행하면 기존 활성 상태를 보존하면서 서비스를 재시작한다. 상태와 로그는 다음처럼 확인한다.
+
+```sh
+sv status stock-monitor stock-monitor-backup
+tail -f "$PREFIX/var/log/sv/stock-monitor/current"
+```
+
+앱이 비정상 종료되면 runit이 다시 시작한다. 로그는 서비스별로 1MB 또는 하루마다 순환하며 과거 파일 5개를 보관한다.
+
+## 데이터베이스 백업
+
+백업 서비스는 시작 직후 SQLite 온라인 백업을 만들고 이후 24시간마다 반복한다. 실패하면 5분 뒤 다시 시도한다. 백업은 기본 7개를 보관하고 각 파일 권한은 `600`이다.
+
+```sh
+"$HOME/stock-monitor/.venv/bin/stock-monitor" backup-db
+ls -la "$HOME/.local/share/stock-monitor/backups"
+```
+
+Toss 자격 증명이나 실행 중인 서버를 중단하지 않고 백업할 수 있다. 복원은 서비스를 멈추고 현재 DB를 별도 보관한 뒤 검증된 백업 파일로 교체하는 운영 작업이므로 자동화하지 않는다.
+
+## 스마트폰 재부팅 자동 시작
+
+설치 스크립트는 `$HOME/.termux/boot/10-stock-monitor`도 준비한다. [공식 안내](https://github.com/termux/termux-boot/blob/master/README.md)에 따라 별도로 **Termux:Boot를 현재 Termux와 같은 배포처에서 설치하고 앱 아이콘을 한 번 실행**해야 Android 부팅 때 이 파일이 실행된다.
+
+Samsung 설정에서 Termux와 Termux:Boot 두 앱의 배터리를 `제한 없음`으로 지정한다. 그다음 스마트폰을 재부팅하고 잠금 해제 후 아래를 확인한다.
+
+```sh
+sv status stock-monitor stock-monitor-backup
+curl -fsS http://127.0.0.1:8000/health/live
+curl -fsS http://127.0.0.1:8000/health/market-data
+```
+
+Termux:Boot 설치 전에는 앱 자동 시작과 wake lock을 실제 재부팅으로 검증할 수 없다.
