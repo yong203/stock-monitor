@@ -152,7 +152,7 @@ curl -fsS http://127.0.0.1:8000/health/live
 curl -fsS http://127.0.0.1:8000/health/market-data
 ```
 
-현재 운영 폰은 Google Play판 `googleplay.2025.10.05`이며, v0.5.1 배포 뒤 재부팅해 SSH·웹·백업 서비스 자동 시작을 검증했다.
+현재 운영 폰은 Google Play판 `googleplay.2025.10.05`이며, v0.6.0 배포 뒤 웹·백업·Toss 연결, DB schema v3, 보고서 API 인증을 검증했다. 재부팅 자동 시작은 v0.5.1에서 검증했다.
 
 ## Mac에서 투자 보고서 생성
 
