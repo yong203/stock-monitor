@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% from "_report_card.html" import render_report %}
+{% block title %}{{ instrument.name }} · Stock Monitor{% endblock %}
+{% block content %}
+  <div class="instrument-page" data-country="{{ instrument.country }}" data-symbol="{{ instrument.symbol }}">
+    <a class="back-link" href="/">← 관심종목으로</a>
+
+    <section class="instrument-hero" aria-labelledby="instrument-title">
+      <div class="instrument-heading">
+        <p class="eyebrow">INVESTMENT REPORTS</p>
+        <div class="instrument-title-row">
+          <div>
+            <h1 id="instrument-title">{{ instrument.name }}</h1>
+            <p class="muted">
+              {{ instrument.symbol }} · {{ instrument.market }}
+              {% if instrument.is_etf %}· ETF{% endif %}
+            </p>
+          </div>
+          <div
+            class="connection pending"
+            id="quote-connection"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="quote-connection-label">시세 연결 준비 중</span>
+          </div>
+        </div>
+      </div>
+
+      <article class="stock-card instrument-quote pending" data-quote-card aria-label="실시간 시세">
+        <header>
+          <div>
+            <h2>실시간 현재가</h2>
+            <p>{{ instrument.symbol }} · {{ instrument.market }}</p>
+          </div>
+          {% if instrument.is_etf %}<span class="badge">ETF</span>{% endif %}
+        </header>
+        <div class="price unavailable">
+          <span class="price-value">—</span>
+          <small class="price-currency">시세 준비 중</small>
+        </div>
+        <div class="change neutral">
+          <span class="change-symbol" aria-hidden="true">—</span>
+          <span class="change-text">전일 대비 준비 중</span>
+        </div>
+        <footer>
+          <span class="quote-status">시장 확인 중 · 시세 대기</span>
+          <time class="quote-time">업데이트 대기</time>
+        </footer>
+      </article>
+    </section>
+
+    <section class="reports" aria-labelledby="reports-title">
+      <div class="reports-heading">
+        <div>
+          <p class="eyebrow">LATEST FIRST</p>
+          <h2 id="reports-title">투자 분석 보고서</h2>
+        </div>
+        {% if reports %}
+          <p class="reports-updated">
+            최신 분석
+            <time datetime="{{ reports[0].analyzed_at }}" data-kst-time>{{ reports[0].analyzed_at }}</time>
+          </p>
+        {% endif %}
+      </div>
+
+      <p class="report-notice">
+        AI가 공개 정보를 바탕으로 정리한 일반적 분석이며, 개인화된 투자 권유가 아닙니다.
+      </p>
+
+      {% if reports %}
+        <ol class="report-timeline">
+          {% for report in reports %}
+            {{ render_report(report) }}
+          {% endfor %}
+        </ol>
+        {% if next_cursor %}
+          <div class="report-more-wrap">
+            <button
+              class="button secondary"
+              type="button"
+              data-report-more
+              data-market="{{ instrument.market }}"
+              data-symbol="{{ instrument.symbol }}"
+              data-next-cursor="{{ next_cursor }}"
+            >
+              과거 보고서 더 보기
+            </button>
+            <span class="report-more-status" role="status" aria-live="polite"></span>
+          </div>
+        {% endif %}
+      {% else %}
+        <section class="empty report-empty" aria-labelledby="report-empty-title">
+          <span class="empty-icon" aria-hidden="true">⌛</span>
+          <h2 id="report-empty-title">아직 보고서가 없습니다</h2>
+          <p>Mac에서 <code>$stock-report 종목명</code>을 실행하면 최신 분석이 여기에 표시됩니다.</p>
+        </section>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

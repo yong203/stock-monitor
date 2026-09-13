@@ -1,0 +1,162 @@
+{% macro render_report(report) -%}
+  {% set stance_labels = {
+    "favorable": "우호적",
+    "balanced": "중립",
+    "cautious": "주의",
+    "insufficient": "판단 보류"
+  } %}
+  {% set confidence_labels = {"high": "높음", "medium": "보통", "low": "낮음"} %}
+  {% set item_kind_labels = {
+    "fact": "사실",
+    "inference": "추론",
+    "opinion": "의견",
+    "unknown": "미확인"
+  } %}
+  {% set change_labels = {
+    "initial": "첫 분석",
+    "view_changed": "관점 변경",
+    "view_reinforced": "관점 강화",
+    "facts_updated": "새 사실 추가",
+    "unchanged": "관점 유지"
+  } %}
+  {% set source_kind_labels = {
+    "market_data": "시장 데이터",
+    "regulator": "감독기관",
+    "exchange": "거래소",
+    "issuer": "발행사",
+    "official": "공식",
+    "filing": "공시",
+    "news": "언론"
+  } %}
+  <li class="report-card" id="report-{{ report.id }}">
+    <button
+      class="report-toggle"
+      id="report-trigger-{{ report.id }}"
+      type="button"
+      aria-expanded="false"
+      aria-controls="report-body-{{ report.id }}"
+      data-report-toggle
+    >
+      <span class="report-card-meta">
+        <time datetime="{{ report.analyzed_at }}" data-kst-time>{{ report.analyzed_at }}</time>
+        <span class="report-change change-{{ report.change_label }}">
+          {{ change_labels.get(report.change_label, "변경점 확인") }}
+        </span>
+      </span>
+      <strong class="report-title" role="heading" aria-level="3">{{ report.title }}</strong>
+      <span class="report-preview">{{ report.summary }}</span>
+      <span class="report-signal-row">
+        <span class="report-signal" data-stance="{{ report.short_term_stance }}">
+          단기 · {{ stance_labels.get(report.short_term_stance, "판단 보류") }}
+        </span>
+        <span class="report-confidence">신뢰도 {{ confidence_labels.get(report.confidence, "낮음") }}</span>
+      </span>
+      <span class="report-toggle-label" aria-hidden="true">
+        <span data-expand-label>상세 분석 펼치기</span>
+        <span class="report-chevron">↓</span>
+      </span>
+    </button>
+
+    <section
+      class="report-body"
+      id="report-body-{{ report.id }}"
+      aria-labelledby="report-trigger-{{ report.id }}"
+      hidden
+    >
+      <dl class="report-facts">
+        <div>
+          <dt>분석 기준</dt>
+          <dd><time datetime="{{ report.analyzed_at }}" data-kst-time>{{ report.analyzed_at }}</time></dd>
+        </div>
+        <div>
+          <dt>생성 시각</dt>
+          <dd><time datetime="{{ report.created_at }}" data-kst-time>{{ report.created_at }}</time></dd>
+        </div>
+        <div>
+          <dt>기준 가격</dt>
+          <dd>{{ report.price }} {{ report.currency }}</dd>
+        </div>
+        <div>
+          <dt>근거 신뢰도</dt>
+          <dd>{{ confidence_labels.get(report.confidence, "낮음") }}</dd>
+        </div>
+      </dl>
+
+      <div class="report-outlooks" aria-label="분석 관점">
+        <article data-stance="{{ report.short_term_stance }}">
+          <span>단기 관점</span>
+          <strong>{{ stance_labels.get(report.short_term_stance, "판단 보류") }}</strong>
+        </article>
+        <article data-stance="{{ report.medium_term_stance }}">
+          <span>중기 관점</span>
+          <strong>{{ stance_labels.get(report.medium_term_stance, "판단 보류") }}</strong>
+        </article>
+      </div>
+
+      <section class="report-section report-summary-section">
+        <h3>핵심 요약</h3>
+        <p>{{ report.summary }}</p>
+      </section>
+
+      {% for section in report.sections %}
+        <section class="report-section">
+          <h3>{{ section.title }}</h3>
+          <ul>
+            {% for item in section['items'] %}
+              <li class="report-item item-{{ item.kind }}">
+                <span class="report-item-kind">{{ item_kind_labels.get(item.kind, "미확인") }}</span>
+                <span>{{ item.text }}</span>
+                {% if item.source_keys %}
+                  <span class="source-references" aria-label="참고 출처">
+                    {% for source_key in item.source_keys %}
+                      <a href="#report-{{ report.id }}-source-{{ source_key }}">[{{ source_key }}]</a>
+                    {% endfor %}
+                  </span>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </section>
+      {% endfor %}
+
+      <section class="report-section report-sources" aria-labelledby="report-{{ report.id }}-sources-title">
+        <h3 id="report-{{ report.id }}-sources-title">출처 {{ report.sources|length }}개</h3>
+        <ol>
+          {% for source in report.sources %}
+            <li
+              id="report-{{ report.id }}-source-{{ source.source_key }}"
+              {% if loop.index > 3 %}data-source-extra hidden{% endif %}
+            >
+              <a href="{{ source.url }}" target="_blank" rel="noopener noreferrer">
+                <span class="source-heading">
+                  <span class="source-key">[{{ source.source_key }}]</span>
+                  <span class="source-kind">{{ source_kind_labels.get(source.kind, source.kind) }}</span>
+                </span>
+                <strong>{{ source.title }}</strong>
+                <span class="source-detail">
+                  {{ source.publisher }}
+                  {% if source.published_at %}
+                    · 게시 <time datetime="{{ source.published_at }}" data-kst-time>{{ source.published_at }}</time>
+                  {% else %}
+                    · 게시 시각 미상
+                  {% endif %}
+                  · 확인 <time datetime="{{ source.retrieved_at }}" data-kst-time>{{ source.retrieved_at }}</time>
+                  · 새 창
+                </span>
+              </a>
+            </li>
+          {% endfor %}
+        </ol>
+        {% if report.sources|length > 3 %}
+          <button class="source-more" type="button" aria-expanded="false" data-source-more>
+            출처 {{ report.sources|length - 3 }}개 더 보기
+          </button>
+        {% endif %}
+      </section>
+
+      <button class="button secondary report-close" type="button" data-report-close>
+        보고서 접기
+      </button>
+    </section>
+  </li>
+{%- endmacro %}
