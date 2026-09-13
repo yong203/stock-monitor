@@ -1,0 +1,3 @@
+base_url = "http://192.168.0.29:8000"
+writer_token = "replace-with-a-long-random-token"
+dart_api_key = "replace-with-your-opendart-api-key"
