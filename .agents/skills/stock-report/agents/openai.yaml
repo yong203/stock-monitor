@@ -4,4 +4,3 @@ interface:
   default_prompt: "Use $stock-report to analyze and save a report for the specified watched instrument."
 policy:
   allow_implicit_invocation: false
-
